@@ -258,6 +258,22 @@ The frontend automatically detects the hostname and connects to the backend on t
 
 ---
 
+## MCP Server
+
+LLM Council Plus can be used as an MCP (Model Context Protocol) server, letting AI tools like Claude Code and Gemini CLI send questions to the council and retrieve deliberation results — without opening a browser.
+
+**Quick install for Claude Code:**
+```bash
+pip install -e .
+claude mcp add llm-council python -m llm_council_mcp
+```
+
+Then ask Claude: "check the council health" to verify the connection.
+
+See [docs/mcp/](docs/mcp/) for full setup guides, including remote server and SSE transport configurations.
+
+---
+
 ## Configuration
 
 ### First-Time Setup
@@ -320,6 +336,7 @@ Connect to any OpenAI-compatible API:
 | Provider | Setup |
 |----------|-------|
 | DuckDuckGo | Works out of the box, no setup needed |
+| TinyFish | Free tier, no API key required. Uses batch Fetch API for fast multi-URL fetching. |
 | Serper | Get key at [serper.dev](https://serper.dev), enter in Search Providers tab |
 | Tavily | Get key at [tavily.com](https://tavily.com), enter in Search Providers tab |
 | Brave | Get key at [brave.com/search/api](https://brave.com/search/api/), enter in Search Providers tab |
