@@ -2,6 +2,8 @@
 
 from mcp.server.fastmcp import FastMCP
 
+from .tools import council as council_tools
+
 
 def create_server(
     base_url: str = "http://localhost:8001",
@@ -31,6 +33,9 @@ def create_server(
 
     # Attach base_url so tool modules can retrieve it via server.base_url
     server.base_url = base_url  # type: ignore[attr-defined]
+
+    # Register tools
+    council_tools.register(server, base_url)
 
     return server
 
