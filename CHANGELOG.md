@@ -15,6 +15,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **TinyFish search provider**: 5th web search option using TinyFish's free-tier batch Fetch API; no API key required
 - **90 tests**: backend TinyFish provider tests, MCP integration tests covering all 13 tools and both transport modes
 - **`docs/mcp/`**: Comprehensive MCP documentation including transport selection guide, step-by-step setup for stdio and SSE, full tools reference, and real-world usage examples
+- **`llm-council-api` Claude Code skill** (`skills/llm-council-api/SKILL.md`): Installable skill for interacting with the Council via REST API without MCP — covers all endpoints, SSE parsing, error handling, and troubleshooting
 
 ## [0.2.3] - 2026-05-04
 

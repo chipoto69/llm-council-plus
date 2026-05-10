@@ -274,6 +274,26 @@ See [docs/mcp/](docs/mcp/) for full setup guides, including remote server and SS
 
 ---
 
+## Claude Code Skill (No MCP Required)
+
+If MCP isn't available or you prefer direct HTTP access, install the **`llm-council-api` skill** for Claude Code. It teaches Claude how to interact with the Council's REST API directly — configure models, run deliberations, parse SSE streams, and troubleshoot — without the MCP server.
+
+**Install:**
+```bash
+# Option 1: symlink from your cloned repo
+mkdir -p ~/.claude/skills
+ln -s "$(pwd)/skills/llm-council-api" ~/.claude/skills/llm-council-api
+
+# Option 2: download directly
+mkdir -p ~/.claude/skills/llm-council-api
+curl -o ~/.claude/skills/llm-council-api/SKILL.md \
+  https://raw.githubusercontent.com/jacob-bd/llm-council-plus/main/skills/llm-council-api/SKILL.md
+```
+
+Once installed, Claude Code automatically loads it when you ask about council operations. The skill covers all 8 API endpoints, SSE stream parsing, error handling, and troubleshooting. See [`skills/llm-council-api/SKILL.md`](skills/llm-council-api/SKILL.md) for the full reference.
+
+---
+
 ## Configuration
 
 ### First-Time Setup

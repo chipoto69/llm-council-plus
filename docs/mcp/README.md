@@ -24,3 +24,15 @@ See [TOOLS.md](TOOLS.md) for all 13 tools with parameters and examples.
 ## Examples
 
 See [EXAMPLES.md](EXAMPLES.md) for real-world usage walkthroughs.
+
+## MCP Not Working? Use the REST API Skill Instead
+
+If the MCP server is unavailable, the SSE session is stale, or you prefer direct HTTP access, install the **`llm-council-api` Claude Code skill**. It gives Claude the same capabilities (configure council, run deliberations, list models, check health) via the REST API — no MCP required.
+
+```bash
+mkdir -p ~/.claude/skills/llm-council-api
+curl -o ~/.claude/skills/llm-council-api/SKILL.md \
+  https://raw.githubusercontent.com/jacob-bd/llm-council-plus/main/skills/llm-council-api/SKILL.md
+```
+
+See [`skills/llm-council-api/SKILL.md`](../../skills/llm-council-api/SKILL.md) for the full reference including examples, error handling, and troubleshooting.
