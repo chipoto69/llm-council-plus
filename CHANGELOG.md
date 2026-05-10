@@ -7,15 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-10
+
 ### Added
 - **MCP server** (`llm_council_mcp/`): Expose LLM Council Plus as a Model Context Protocol server, letting Claude Code, Gemini CLI, and other MCP clients send questions to the council and retrieve deliberation results programmatically
 - **13 MCP tools**: `list_models`, `get_council_config`, `configure_council`, `set_search_provider`, `run_stage1`, `run_stage2`, `run_stage3`, `run_deliberation`, `quick_chat`, `list_conversations`, `get_conversation`, `check_health`, `test_provider`
 - **stdio transport** (default): MCP server runs as a local process; AI tools communicate via stdin/stdout with outbound HTTP to the Council backend (local or remote)
 - **SSE transport**: MCP server runs as an HTTP server on port 8002; AI tools connect via URL with no local installation required
-- **TinyFish search provider**: 5th web search option using TinyFish's free-tier batch Fetch API; no API key required
+- **TinyFish search provider**: 5th web search option using TinyFish's free-tier Fetch API (5 req/min); requires free API key from agent.tinyfish.ai
 - **90 tests**: backend TinyFish provider tests, MCP integration tests covering all 13 tools and both transport modes
 - **`docs/mcp/`**: Comprehensive MCP documentation including transport selection guide, step-by-step setup for stdio and SSE, full tools reference, and real-world usage examples
-- **`llm-council-api` Claude Code skill** (`skills/llm-council-api/SKILL.md`): Installable skill for interacting with the Council via REST API without MCP — covers all endpoints, SSE parsing, error handling, and troubleshooting
+- **`llm-council-api` Claude Code skill** (`skills/llm-council-api/SKILL.md`, v0.3.0): Installable skill for interacting with the Council via REST API without MCP — covers all endpoints, SSE parsing, error handling, and troubleshooting
 
 ## [0.2.3] - 2026-05-04
 
