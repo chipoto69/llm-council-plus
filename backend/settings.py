@@ -128,6 +128,11 @@ class Settings(BaseModel):
     # Execution Mode
     execution_mode: str = "full"  # Default execution mode: 'chat_only', 'chat_ranking', 'full'
 
+    # Autocouncil Settings
+    autocouncil_enabled: bool = False  # Enable multi-round autonomous deliberation
+    max_rounds: int = 5  # Maximum autocouncil deliberation rounds (1-10)
+    convergence_mode: str = "any"  # Convergence trigger: 'any', 'same_top_model', 'length_stable', 'ranking_consensus'
+
 
 def get_settings() -> Settings:
     """Load settings from file, or return defaults."""

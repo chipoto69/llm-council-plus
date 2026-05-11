@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LLM Council+</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;510;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg-canvas: #08090a; --bg-panel: #0f1011; --bg-surface: #191a1b;
+    --text-primary: #f7f8f8; --text-secondary: #d0d6e0;
+    --text-tertiary: #8a8f98; --text-quaternary: #62666d;
+    --accent: #5e6ad2; --accent-hover: #828fff;
+    --border-subtle: rgba(255,255,255,0.05);
+    --border-standard: rgba(255,255,255,0.08);
+    --green: #10b981; --amber: #f59e0b;
+    --radius-btn: 6px; --radius-card: 8px; --radius-pill: 9999px;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-feature-settings: 'cv01','ss03';
+    background: var(--bg-canvas); color: var(--text-primary);
+    height: 100vh; overflow: hidden;
+    font-size: 15px; line-height: 1.6; -webkit-font-smoothing: antialiased;
+  }
+  .app { display: flex; height: 100vh; }
+
+  /* Sidebar */
+  .sidebar {
+    width: 260px; background: var(--bg-panel);
+    border-right: 1px solid var(--border-subtle);
+    display: flex; flex-direction: column; flex-shrink: 0;
+  }
+  .sidebar-header { padding: 18px 14px; border-bottom: 1px solid var(--border-subtle); }
+  .logo { display: flex; align-items: center; gap: 8px; }
+  .logo-mark {
+    width: 26px; height: 26px; background: var(--accent);
+    border-radius: var(--radius-btn);
+    display: flex; align-items: center; justify-content: center;
+    font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; color: #fff;
+  }
+  .logo-text { font-size: 14px; font-weight: 510; color: var(--text-primary); }
+
+  .mode-toggle {
+    margin-top: 12px; display: flex; gap: 1px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid var(--border-standard);
+    border-radius: var(--radius-btn); overflow: hidden;
+  }
+  .mode-toggle button {
+    flex: 1; padding: 6px 0; background: none; border: none;
+    color: var(--text-quaternary); font-size: 10px; font-weight: 510;
+    font-family: inherit; cursor: pointer; text-transform: uppercase; letter-spacing: normal;
+  }
+  .mode-toggle button.active { background: var(--accent); color: #fff; }
+
+  .conv-list { flex: 1; overflow-y: auto; padding: 6px; }
+  .conv-item {
+    padding: 8px 10px; border-radius: var(--radius-card);
+    cursor: pointer; transition: background 0.1s; margin-bottom: 1px;
+  }
+  .conv-item:hover { background: rgba(255,255,255,0.02); }
+  .conv-item.active { background: rgba(94,106,210,0.08); }
+  .conv-title {
+    font-size: 12px; font-weight: 510; color: var(--text-secondary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .conv-item.active .conv-title { color: var(--text-primary); }
+  .conv-meta { font-size: 10px; color: var(--text-quaternary); margin-top: 2px; }
+
+  /* Main */
+  .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  .cmd-bar {
+    display: flex; align-items: center; gap: 10px;
+    padding: 12px 20px; border-bottom: 1px solid var(--border-subtle);
+    background: var(--bg-panel);
+  }
+  .cmd-input {
+    flex: 1; padding: 8px 14px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border-standard);
+    border-radius: var(--radius-btn); color: var(--text-primary);
+    font-size: 14px; font-family: inherit; outline: none;
+    letter-spacing: -0.165px;
+  }
+  .cmd-input::placeholder { color: var(--text-quaternary); }
+  .cmd-input:focus { border-color: var(--accent); }
+  .cmd-submit {
+    padding: 8px 18px; background: var(--accent); border: none;
+    border-radius: var(--radius-btn); color: #fff;
+    font-size: 12px; font-weight: 510; font-family: inherit; cursor: pointer;
+    white-space: nowrap;
+  }
+  .cmd-submit:hover { background: var(--accent-hover); }
+
+  .messages { flex: 1; overflow-y: auto; padding: 20px; }
+  .msg-group { margin-bottom: 28px; }
+  .user-msg { margin-bottom: 16px; }
+  .user-label { font-size: 10px; font-weight: 510; color: var(--text-quaternary); text-transform: uppercase; margin-bottom: 4px; }
+  .user-content {
+    background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border-standard);
+    border-radius: var(--radius-card); padding: 12px;
+    color: var(--text-primary); line-height: 1.6; font-size: 13px;
+    white-space: pre-wrap; max-width: 80%;
+  }
+
+  .stage {
+    margin-bottom: 16px;
+    background: rgba(255,255,255,0.02);
+    border: 1px solid var(--border-standard);
+    border-radius: var(--radius-card); overflow: hidden;
+  }
+  .stage-hdr {
+    padding: 6px 12px; background: rgba(255,255,255,0.02);
+    border-bottom: 1px solid var(--border-subtle);
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 10px; font-weight: 510; color: var(--text-quaternary);
+    text-transform: uppercase;
+  }
+  .stage-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); }
+  .stage-body { padding: 12px; }
+  .tabs { display: flex; gap: 4px; margin-bottom: 10px; flex-wrap: wrap; }
+  .tab {
+    padding: 4px 10px; font-size: 11px; font-weight: 510;
+    background: rgba(255,255,255,0.02); border: 1px solid var(--border-standard);
+    border-radius: var(--radius-btn); color: var(--text-tertiary);
+    cursor: pointer; font-family: inherit;
+  }
+  .tab:hover { border-color: var(--accent); color: var(--text-secondary); }
+  .tab.active { background: rgba(94,106,210,0.1); border-color: var(--accent); color: var(--accent); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  .resp-model { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-quaternary); margin-bottom: 3px; }
+  .resp-text { color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
+
+  .rank-row { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12px; }
+  .rank-num { font-size: 12px; font-weight: 510; color: var(--accent); width: 16px; }
+  .rank-name { flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-secondary); }
+  .rank-pts { font-size: 10px; color: var(--text-quaternary); }
+
+  .eval-model { font-family: 'JetBrains Mono', monospace; font-size: 10px; color: var(--text-quaternary); margin-bottom: 3px; }
+  .eval-text { color: var(--text-tertiary); font-size: 12px; line-height: 1.6; }
+
+  .chairman-box {
+    padding: 12px; background: rgba(94,106,210,0.06);
+    border: 1px solid rgba(94,106,210,0.12); border-radius: var(--radius-card);
+  }
+  .chairman-label { font-family: 'JetBrains Mono', monospace; font-size: 9px; color: var(--accent); margin-bottom: 4px; }
+  .chairman-text { color: var(--text-secondary); font-size: 13px; line-height: 1.7; }
+
+  .empty-state {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; height: 100%; opacity: 0.3;
+    text-align: center; gap: 8px;
+  }
+  .empty-state h2 { font-size: 20px; font-weight: 400; color: var(--text-primary); }
+  .empty-state p { font-size: 13px; color: var(--text-quaternary); max-width: 360px; }
+
+  .loading {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px; color: var(--text-quaternary); font-size: 12px;
+  }
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid var(--border-standard);
+    border-top-color: var(--accent); border-radius: 50%;
+    animation: spin 0.6s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.05); border-radius: 2px; }
+</style>
+</head>
+<body>
+<div class="app">
+
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <div class="logo">
+      <div class="logo-mark">⚖</div>
+      <span class="logo-text">LLM Council+</span>
+    </div>
+    <div class="mode-toggle" id="modeToggle">
+      <button class="active" data-mode="council" onclick="setMode('council')">Council</button>
+      <button data-mode="auto" onclick="setMode('auto')">Autocouncil</button>
+    </div>
+  </div>
+  <div class="conv-list" id="convList"><div style="padding:24px;text-align:center;color:var(--text-quaternary);font-size:12px;">No deliberations yet</div></div>
+  <div style="padding:10px;border-top:1px solid var(--border-subtle);font-size:10px;color:var(--text-quaternary);text-align:center;">chipoto69/llm-council-plus · v0.4.0</div>
+</aside>
+
+<main class="main" id="main">
+  <div class="cmd-bar">
+    <input class="cmd-input" id="queryInput" placeholder="Ask the council anything..." onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();send();}">
+    <button class="cmd-submit" id="sendBtn" onclick="send()">Convene</button>
+  </div>
+  <div class="messages" id="messages">
+    <div class="empty-state">
+      <h2>Council Chamber</h2>
+      <p>Ask a question to convene the council — multiple AI models will deliberate, peer-review, and synthesize a final answer.</p>
+    </div>
+  </div>
+</main>
+
+</div>
+
+<script>
+const API = 'http://localhost:8001';
+let currentConv = null;
+let mode = 'council';
+
+async function api(path, opts = {}) {
+  const res = await fetch(`${API}${path}`, { headers: { 'Content-Type': 'application/json' }, ...opts });
+  if (!res.ok) throw new Error(`${res.status}`);
+  return res.json();
+}
+
+async function loadConvs() {
+  const convs = await api('/api/conversations');
+  const el = document.getElementById('convList');
+  if (!convs.length) { el.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-quaternary);font-size:12px;">No deliberations yet</div>'; return; }
+  el.innerHTML = convs.map(c => `
+    <div class="conv-item${c.id===currentConv?' active':''}" onclick="loadConv('${c.id}')">
+      <div class="conv-title">${esc(c.title||'Untitled')}</div>
+      <div class="conv-meta">${c.message_count} messages</div>
+    </div>
+  `).join('');
+}
+
+async function loadConv(id) {
+  currentConv = id;
+  const c = await api(`/api/conversations/${id}`);
+  await loadConvs();
+  render(c);
+}
+
+function render(conv) {
+  const el = document.getElementById('messages');
+  if (!conv.messages.length) {
+    el.innerHTML = '<div class="empty-state"><p style="font-size:13px;color:var(--text-quaternary);">Awaiting your question...</p></div>';
+    return;
+  }
+  el.innerHTML = conv.messages.map((m, i) => {
+    if (m.role === 'user') return `<div class="msg-group"><div class="user-msg"><div class="user-label">You</div><div class="user-content">${esc(m.content)}</div></div></div>`;
+    return renderAssistant(m, i);
+  }).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+function renderAssistant(m, idx) {
+  const s1 = m.stage1 || [], s2 = m.stage2 || [], s3 = m.stage3 || {};
+  const meta = m.metadata || {}, ranks = meta.aggregate_rankings || [];
+
+  let html = '';
+  if (s1.length) {
+    const tid = 's1_'+idx;
+    html += `<div class="stage"><div class="stage-hdr">Stage 1 · First Opinions<div class="stage-dot"></div></div><div class="stage-body">
+      <div class="tabs">${s1.map((r,i) => `<button class="tab${i===0?' active':''}" onclick="swTab('${tid}',${i})">${short(r.model)}</button>`).join('')}</div>
+      ${s1.map((r,i) => `<div class="tab-panel${i===0?' active':''}" id="${tid}-${i}"><div class="resp-model">${r.model}</div><div class="resp-text">${md(r.response)}</div></div>`).join('')}
+    </div></div>`;
+  }
+  if (s2.length) {
+    const tid2 = 's2_'+idx;
+    html += `<div class="stage"><div class="stage-hdr">Stage 2 · Peer Rankings<div class="stage-dot" style="background:var(--amber);"></div></div><div class="stage-body">
+      ${ranks.length ? ranks.map((r,i) => `<div class="rank-row"><span class="rank-num">${i+1}</span><span class="rank-name">${r.model}</span><span class="rank-pts">${r.average_rank}</span></div>`).join('') : ''}
+      <div class="tabs" style="margin-top:8px;">${s2.map((r,i) => `<button class="tab${i===0?' active':''}" onclick="swTab('${tid2}',${i})">${short(r.model)}</button>`).join('')}</div>
+      ${s2.map((r,i) => `<div class="tab-panel${i===0?' active':''}" id="${tid2}-${i}"><div class="eval-model">${r.model} evaluates</div><div class="eval-text">${md(r.ranking||'')}</div></div>`).join('')}
+    </div></div>`;
+  }
+  if (s3.response) {
+    html += `<div class="stage"><div class="stage-hdr">Stage 3 · Chairman Synthesis<div class="stage-dot" style="background:var(--accent);"></div></div><div class="stage-body">
+      <div class="chairman-box"><div class="chairman-label">${s3.model} · Chairman</div><div class="chairman-text">${md(s3.response)}</div></div>
+    </div></div>`;
+  }
+  return `<div class="msg-group">${html}</div>`;
+}
+
+async function send() {
+  const input = document.getElementById('queryInput');
+  const q = input.value.trim(); if (!q) return;
+  if (!currentConv) {
+    const c = await api('/api/conversations', { method: 'POST', body: '{}' });
+    currentConv = c.id;
+  }
+  const btn = document.getElementById('sendBtn');
+  const msgs = document.getElementById('messages');
+  input.disabled = true; btn.disabled = true; btn.textContent = '...';
+  msgs.innerHTML += `<div class="msg-group"><div class="user-msg"><div class="user-label">You</div><div class="user-content">${esc(q)}</div></div><div class="loading" id="ld"><div class="spinner"></div> Council deliberating...</div></div>`;
+  msgs.scrollTop = msgs.scrollHeight;
+  input.value = '';
+
+  try {
+    if (mode === 'auto') {
+      await api('/api/autocouncil', { method: 'POST', body: JSON.stringify({ content: q, max_rounds: 5 }) });
+    } else {
+      await api(`/api/conversations/${currentConv}/message`, { method: 'POST', body: JSON.stringify({ content: q }) });
+    }
+    const c = await api(`/api/conversations/${currentConv}`);
+    render(c); await loadConvs();
+  } catch(e) {
+    document.getElementById('ld').innerHTML = `<div style="color:#ef4444;padding:10px;font-size:12px;">Failed: ${esc(e.message)}</div>`;
+  }
+  input.disabled = false; btn.disabled = false; btn.textContent = 'Convene'; input.focus();
+}
+
+function setMode(m) {
+  mode = m;
+  document.querySelectorAll('#modeToggle button').forEach(b => b.classList.toggle('active', b.dataset.mode === m));
+}
+function swTab(prefix, idx) {
+  document.querySelectorAll(`[onclick^="swTab('${prefix}'"]`).forEach((b, i) => { b.classList.toggle('active', i===idx); document.getElementById(`${prefix}-${i}`)?.classList.toggle('active', i===idx); });
+}
+function short(n) { const p = n.split('/'); const l = p[p.length-1]; return l.length > 22 ? l.slice(0,20)+'..' : l; }
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function md(t) {
+  if (!t) return '';
+  return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>').replace(/\*(.+?)\*/g,'<em>$1</em>').replace(/`(.+?)`/g,'<code style="background:rgba(255,255,255,0.04);padding:1px 4px;border-radius:3px;font-family:JetBrains Mono,monospace;font-size:11px;">$1</code>').replace(/\n/g,'<br>');
+}
+
+loadConvs();
+document.getElementById('queryInput').focus();
+</script>
+</body>
+</html>
