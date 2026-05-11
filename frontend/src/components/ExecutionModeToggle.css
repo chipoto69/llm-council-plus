@@ -39,6 +39,11 @@
     transform: translateY(-0.5px);
 }
 
+.mode-option[data-mode="autocouncil"].active {
+    background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
+    box-shadow: 0 2px 12px rgba(139, 92, 246, 0.35);
+}
+
 .mode-option:disabled {
     opacity: 0.5;
     cursor: not-allowed;

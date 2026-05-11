@@ -4,7 +4,8 @@ export default function ExecutionModeToggle({ value, onChange, disabled }) {
     const modes = [
         { id: 'chat_only', label: 'Chat Only', icon: '💬' },
         { id: 'chat_ranking', label: 'Chat + Ranking', icon: '⚖️' },
-        { id: 'full', label: 'Full Deliberation', icon: '🏛️' }
+        { id: 'full', label: 'Full Deliberation', icon: '🏛️' },
+        { id: 'autocouncil', label: 'Autocouncil', icon: '♾️' }
     ];
 
     return (
@@ -15,6 +16,7 @@ export default function ExecutionModeToggle({ value, onChange, disabled }) {
                     type="button" // Prevent form submission when inside a form
                     role="radio"
                     aria-checked={value === mode.id}
+                    data-mode={mode.id}
                     className={`mode-option ${value === mode.id ? 'active' : ''}`}
                     onClick={() => !disabled && onChange(mode.id)}
                     disabled={disabled}

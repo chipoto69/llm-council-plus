@@ -81,7 +81,7 @@ class OpenCodeGoProvider(LLMProvider):
         try:
             headers = {
                 "Content-Type": "application/json",
-                "x-api-key": api_key,
+                "Authorization": f"Bearer {api_key}",
             }
 
             async with httpx.AsyncClient(timeout=timeout) as client:
@@ -151,7 +151,7 @@ class OpenCodeGoProvider(LLMProvider):
         try:
             headers = {
                 "Content-Type": "application/json",
-                "x-api-key": api_key,
+                "Authorization": f"Bearer {api_key}",
             }
 
             payload: Dict[str, Any] = {
@@ -233,7 +233,7 @@ class OpenCodeGoProvider(LLMProvider):
         try:
             headers = {
                 "Content-Type": "application/json",
-                "x-api-key": api_key,
+                "Authorization": f"Bearer {api_key}",
             }
 
             async with httpx.AsyncClient(timeout=10.0) as client:

@@ -23,6 +23,8 @@ function App() {
   const [chairmanModel, setChairmanModel] = useState(null);
   const [searchProvider, setSearchProvider] = useState('duckduckgo');
   const [executionMode, setExecutionMode] = useState(DEFAULT_EXECUTION_MODE);
+  const [autocouncilMaxRounds, setAutocouncilMaxRounds] = useState(5);
+  const [autocouncilConvergenceMode, setAutocouncilConvergenceMode] = useState('strict');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const abortControllerRef = useRef(null);
   const requestIdRef = useRef(0);
@@ -41,6 +43,8 @@ function App() {
       // Load execution mode preference
       setExecutionMode(settings.execution_mode || DEFAULT_EXECUTION_MODE);
       setSearchProvider(settings.search_provider || 'duckduckgo');
+      setAutocouncilMaxRounds(settings.autocouncil_max_rounds || 5);
+      setAutocouncilConvergenceMode(settings.autocouncil_convergence_mode || 'strict');
 
       const hasApiKey = settings.openrouter_api_key_set ||
         settings.groq_api_key_set ||
@@ -106,6 +110,8 @@ function App() {
       setCouncilModels(models);
       setChairmanModel(chairman);
       setSearchProvider(settings.search_provider || 'duckduckgo');
+      setAutocouncilMaxRounds(settings.autocouncil_max_rounds || 5);
+      setAutocouncilConvergenceMode(settings.autocouncil_convergence_mode || 'strict');
 
       const hasCouncilMembers = models.some(m => m && m.trim() !== '');
       const hasChairman = chairman && chairman.trim() !== '';
@@ -274,44 +280,243 @@ function App() {
         messages: [...prev.messages, userMessage],
       }));
 
-      // Create a partial assistant message that will be updated progressively
-      const assistantMessage = {
-        role: 'assistant',
-        stage1: null,
-        stage2: null,
-        stage3: null,
-        metadata: null,
-        loading: {
-          search: false,
-          stage1: false,
-          stage2: false,
-          stage3: false,
-        },
-        timers: {
-          stage1Start: null,
-          stage1End: null,
-          stage2Start: null,
-          stage2End: null,
-          stage3Start: null,
-          stage3End: null,
-        },
-        progress: {
-          stage1: { count: 0, total: 0, currentModel: null },
-          stage2: { count: 0, total: 0, currentModel: null }
-        }
-      };
+      // --- Autocouncil Mode ---
+      if (executionMode === 'autocouncil') {
+        const autocouncilMsg = {
+          role: 'assistant',
+          autocouncil: {
+            rounds: [],
+            converged: false,
+            convergenceReason: null,
+            finalSynthesis: null,
+            loading: {
+              currentRound: 1,
+              currentStage: null,
+            },
+          },
+        };
 
-      // Add the partial assistant message
-      setCurrentConversation((prev) => ({
-        ...prev,
-        messages: [...prev.messages, assistantMessage],
-      }));
+        setCurrentConversation((prev) => ({
+          ...prev,
+          messages: [...prev.messages, autocouncilMsg],
+        }));
 
-      // Send message with streaming
-      await api.sendMessageStream(
-        currentConversationId,
-        { content, webSearch, executionMode },
-        (eventType, event) => {
+        let currentRound = 1;
+
+        await api.sendAutocouncilStream(
+          {
+            content,
+            maxRounds: autocouncilMaxRounds,
+            convergenceMode: autocouncilConvergenceMode,
+          },
+          (eventType, event) => {
+            switch (eventType) {
+              case 'stage1_start':
+                setCurrentConversation((prev) => {
+                  const messages = [...prev.messages];
+                  const lastMsg = { ...messages[messages.length - 1] };
+                  const ac = { ...lastMsg.autocouncil };
+                  ac.loading = { ...ac.loading, currentStage: 'stage1' };
+                  // Ensure round exists
+                  if (!ac.rounds.find(r => r.round === currentRound)) {
+                    ac.rounds = [...ac.rounds, {
+                      round: currentRound,
+                      stage1: null,
+                      stage2: null,
+                      stage3: null,
+                      answer: null,
+                      complete: false,
+                    }];
+                  }
+                  lastMsg.autocouncil = ac;
+                  messages[messages.length - 1] = lastMsg;
+                  return { ...prev, messages };
+                });
+                break;
+
+              case 'stage1_complete':
+                setCurrentConversation((prev) => {
+                  const messages = [...prev.messages];
+                  const lastMsg = { ...messages[messages.length - 1] };
+                  const ac = { ...lastMsg.autocouncil };
+                  const roundIdx = ac.rounds.findIndex(r => r.round === currentRound);
+                  if (roundIdx >= 0) {
+                    ac.rounds = [...ac.rounds];
+                    ac.rounds[roundIdx] = { ...ac.rounds[roundIdx], stage1: event.data };
+                  }
+                  lastMsg.autocouncil = ac;
+                  messages[messages.length - 1] = lastMsg;
+                  return { ...prev, messages };
+                });
+                break;
+
+              case 'stage2_start':
+                setCurrentConversation((prev) => {
+                  const messages = [...prev.messages];
+                  const lastMsg = { ...messages[messages.length - 1] };
+                  const ac = { ...lastMsg.autocouncil };
+                  ac.loading = { ...ac.loading, currentStage: 'stage2' };
+                  lastMsg.autocouncil = ac;
+                  messages[messages.length - 1] = lastMsg;
+                  return { ...prev, messages };
+                });
+                break;
+
+              case 'stage2_complete':
+                setCurrentConversation((prev) => {
+                  const messages = [...prev.messages];
+                  const lastMsg = { ...messages[messages.length - 1] };
+                  const ac = { ...lastMsg.autocouncil };
+                  const roundIdx = ac.rounds.findIndex(r => r.round === currentRound);
+                  if (roundIdx >= 0) {
+                    ac.rounds = [...ac.rounds];
+                    ac.rounds[roundIdx] = {
+                      ...ac.rounds[roundIdx],
+                      stage2: event.data,
+                      metadata: event.metadata || ac.rounds[roundIdx].metadata,
+                    };
+                  }
+                  lastMsg.autocouncil = ac;
+                  messages[messages.length - 1] = lastMsg;
+                  return { ...prev, messages };
+                });
+                break;
+
+              case 'stage3_start':
+                setCurrentConversation((prev) => {
+                  const messages = [...prev.messages];
+                  const lastMsg = { ...messages[messages.length - 1] };
+                  const ac = { ...lastMsg.autocouncil };
+                  ac.loading = { ...ac.loading, currentStage: 'stage3' };
+                  lastMsg.autocouncil = ac;
+                  messages[messages.length - 1] = lastMsg;
+                  return { ...prev, messages };
+                });
+                break;
+
+              case 'stage3_complete':
+                setCurrentConversation((prev) => {
+                  const messages = [...prev.messages];
+                  const lastMsg = { ...messages[messages.length - 1] };
+                  const ac = { ...lastMsg.autocouncil };
+                  const roundIdx = ac.rounds.findIndex(r => r.round === currentRound);
+                  if (roundIdx >= 0) {
+                    ac.rounds = [...ac.rounds];
+                    ac.rounds[roundIdx] = { ...ac.rounds[roundIdx], stage3: event.data };
+                  }
+                  lastMsg.autocouncil = ac;
+                  messages[messages.length - 1] = lastMsg;
+                  return { ...prev, messages };
+                });
+                break;
+
+              case 'round_complete':
+                currentRound = (event.round || currentRound) + 1;
+                setCurrentConversation((prev) => {
+                  const messages = [...prev.messages];
+                  const lastMsg = { ...messages[messages.length - 1] };
+                  const ac = { ...lastMsg.autocouncil };
+                  const roundIdx = ac.rounds.findIndex(r => r.round === (event.round || currentRound - 1));
+                  if (roundIdx >= 0) {
+                    ac.rounds = [...ac.rounds];
+                    ac.rounds[roundIdx] = {
+                      ...ac.rounds[roundIdx],
+                      complete: true,
+                      answer: event.answer || ac.rounds[roundIdx].answer,
+                    };
+                  }
+                  ac.loading = { currentRound: currentRound, currentStage: null };
+                  lastMsg.autocouncil = ac;
+                  messages[messages.length - 1] = lastMsg;
+                  return { ...prev, messages };
+                });
+                break;
+
+              case 'converged':
+                setCurrentConversation((prev) => {
+                  const messages = [...prev.messages];
+                  const lastMsg = { ...messages[messages.length - 1] };
+                  const ac = { ...lastMsg.autocouncil };
+                  ac.converged = true;
+                  ac.convergenceReason = event.reason || null;
+                  lastMsg.autocouncil = ac;
+                  messages[messages.length - 1] = lastMsg;
+                  return { ...prev, messages };
+                });
+                break;
+
+              case 'complete':
+                setCurrentConversation((prev) => {
+                  const messages = [...prev.messages];
+                  const lastMsg = { ...messages[messages.length - 1] };
+                  const ac = { ...lastMsg.autocouncil };
+                  // Extract final synthesis from the last round's stage3
+                  const lastRound = ac.rounds[ac.rounds.length - 1];
+                  if (lastRound && lastRound.stage3 && lastRound.stage3.final_answer) {
+                    ac.finalSynthesis = lastRound.stage3.final_answer;
+                  }
+                  if (event.final_answer) {
+                    ac.finalSynthesis = event.final_answer;
+                  }
+                  ac.loading = null;
+                  lastMsg.autocouncil = ac;
+                  messages[messages.length - 1] = lastMsg;
+                  return { ...prev, messages };
+                });
+                setIsLoading(false);
+                break;
+
+              case 'error':
+                console.error('Autocouncil stream error:', event.message);
+                setIsLoading(false);
+                break;
+
+              default:
+                console.log('Unknown autocouncil event:', eventType);
+            }
+          },
+          abortControllerRef.current?.signal
+        );
+      } else {
+        // --- Regular Council Mode ---
+        // Create a partial assistant message that will be updated progressively
+        const assistantMessage = {
+          role: 'assistant',
+          stage1: null,
+          stage2: null,
+          stage3: null,
+          metadata: null,
+          loading: {
+            search: false,
+            stage1: false,
+            stage2: false,
+            stage3: false,
+          },
+          timers: {
+            stage1Start: null,
+            stage1End: null,
+            stage2Start: null,
+            stage2End: null,
+            stage3Start: null,
+            stage3End: null,
+          },
+          progress: {
+            stage1: { count: 0, total: 0, currentModel: null },
+            stage2: { count: 0, total: 0, currentModel: null }
+          }
+        };
+
+        // Add the partial assistant message
+        setCurrentConversation((prev) => ({
+          ...prev,
+          messages: [...prev.messages, assistantMessage],
+        }));
+
+        // Send message with streaming
+        await api.sendMessageStream(
+          currentConversationId,
+          { content, webSearch, executionMode },
+          (eventType, event) => {
           switch (eventType) {
             case 'search_start':
               setCurrentConversation((prev) => {
@@ -616,6 +821,7 @@ function App() {
               console.log('Unknown event type:', eventType);
           }
         }, abortControllerRef.current?.signal);
+      } // End regular council mode
     } catch (error) {
       // Handle aborted requests - mark message as aborted
       if (error.name === 'AbortError') {

@@ -7,6 +7,7 @@ import Stage2, { Stage2Skeleton } from './Stage2';
 import Stage3, { Stage3Skeleton } from './Stage3';
 import CouncilGrid from './CouncilGrid';
 import ExecutionModeToggle from './ExecutionModeToggle';
+import AutocouncilResults from './AutocouncilResults';
 import { api } from '../api';
 import './ChatInterface.css';
 
@@ -112,6 +113,11 @@ export default function ChatInterface({
                                     </div>
                                 ) : (
                                     <>
+                                        {/* Autocouncil Mode: Multi-round deliberation */}
+                                        {msg.autocouncil && (
+                                            <AutocouncilResults message={msg} />
+                                        )}
+
                                         {/* Search Loading */}
                                         {msg.loading?.search && (
                                             <div className="stage-loading">

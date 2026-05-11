@@ -100,6 +100,10 @@ export default function Settings({ onClose, ollamaStatus, onRefreshOllama, initi
   const [chairmanTemperature, setChairmanTemperature] = useState(0.4);
   const [stage2Temperature, setStage2Temperature] = useState(0.3);
 
+  // Autocouncil Settings
+  const [autocouncilMaxRounds, setAutocouncilMaxRounds] = useState(5);
+  const [autocouncilConvergenceMode, setAutocouncilConvergenceMode] = useState('strict');
+
   // System Prompts State
   const [prompts, setPrompts] = useState({
     stage1_prompt: '',
@@ -371,6 +375,10 @@ export default function Settings({ onClose, ollamaStatus, onRefreshOllama, initi
       setCouncilTemperature(data.council_temperature ?? 0.5);
       setChairmanTemperature(data.chairman_temperature ?? 0.4);
       setStage2Temperature(data.stage2_temperature ?? 0.3);
+
+      // Autocouncil settings
+      setAutocouncilMaxRounds(data.autocouncil_max_rounds ?? 5);
+      setAutocouncilConvergenceMode(data.autocouncil_convergence_mode ?? 'strict');
 
       // Initialize refs for auto-save tracking (prevents auto-save on initial load)
       prevCouncilModelsRef.current = loadedCouncilModels;

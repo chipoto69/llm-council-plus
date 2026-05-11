@@ -376,4 +376,67 @@ export const api = {
       reader.releaseLock();
     }
   },
+
+  /**
+   * Send an autocouncil request with SSE streaming.
+   * @param {Object} options - Request options
+   * @param {string} options.content - The message content
+   * @param {number} options.maxRounds - Maximum deliberation rounds (default 5)
+   * @param {string} options.convergenceMode - 'strict' or 'relaxed' (default 'strict')
+   * @param {function} onEvent - Callback function for each event: (eventType, data) => void
+   * @param {AbortSignal} signal - Optional AbortSignal to cancel the request
+   * @returns {Promise<void>}
+   */
+  async sendAutocouncilStream(options, onEvent, signal) {
+    const { content, maxRounds = 5, convergenceMode = 'strict' } = options;
+    const response = await fetch(
+      `${API_BASE}/api/autocouncil?_t=${Date.now()}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Cache-Control': 'no-cache',
+        },
+        body: JSON.stringify({
+          content,
+          max_rounds: maxRounds,
+          convergence_mode: convergenceMode,
+        }),
+        signal,
+        cache: 'no-store',
+      }
+    );
+
+    if (!response.ok) {
+      throw new Error('Failed to start autocouncil');
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value);
+        const lines = chunk.split('\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            try {
+              const event = JSON.parse(data);
+              onEvent(event.type, event);
+            } catch (e) {
+              console.error('Failed to parse autocouncil SSE event:', e);
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  },
+
 };
