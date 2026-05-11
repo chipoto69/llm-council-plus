@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-10
+
+### Added
+- **Settings export/import/reset endpoints**: `GET /api/settings/export` returns a full settings backup including actual API key values; `POST /api/settings/import` restores from a backup blob; `POST /api/settings/reset` wipes all settings to factory defaults
+- **4 new MCP tools** (17 total): `set_api_key` — set any provider API key by name; `export_config` — backup full config as JSON; `import_config` — restore config from JSON string; `reset_config` — factory reset
+- **Extended `configure_council` MCP tool**: now accepts `stage1_prompt`, `stage2_prompt`, `stage3_prompt`, `enabled_providers`, and `direct_provider_toggles` in addition to existing parameters
+- **Sidebar delete button always visible**: trash icon now shows at 40% opacity on all conversations (was hover-only), brightens to full on hover
+- **18 new tests**: backend export/import/reset endpoint tests, MCP tool tests for all new tools, and client method tests (108 total, up from 90)
+
+### Changed
+- **`llm-council-api` skill updated to v0.4.0**: documents system prompt fields, `enabled_providers`/`direct_provider_toggles` dict formats, all API key field names, and backup/restore endpoints
+- **`import_settings` endpoint simplified**: uses Pydantic body parsing (`Settings` model) instead of manual JSON parsing — FastAPI now returns field-level 422 validation errors instead of generic 400s
+- **`export_settings` endpoint**: uses `model_dump_json()` (single-pass) instead of `model_dump()` + `json.dumps()` (two-pass)
+
 ## [0.3.0] - 2026-05-10
 
 ### Added
