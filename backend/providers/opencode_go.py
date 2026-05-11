@@ -1,10 +1,13 @@
 """OpenCode Go provider with dual format support (OpenAI-compatible + Anthropic)."""
 
 import os
+import logging
 import httpx
 from typing import List, Dict, Any
 
 from .base import LLMProvider
+
+logger = logging.getLogger(__name__)
 
 
 class OpenCodeGoProvider(LLMProvider):
@@ -28,8 +31,14 @@ class OpenCodeGoProvider(LLMProvider):
     ]
 
     def _get_api_key(self) -> str:
-        """Get API key from env var, with fallback to hardcoded key."""
-        return os.getenv("OPENCODE_GO_API_KEY", "")
+        """Get API key from env var. Raises RuntimeError if not set."""
+        api_key = os.getenv("OPENCODE_GO_API_KEY")
+        if not api_key:
+            raise RuntimeError(
+                "OPENCODE_GO_API_KEY environment variable is not set. "
+                "Set it to your OpenCode Go API key."
+            )
+        return api_key
 
     # ------------------------------------------------------------------ #
     #  query — dispatch between OpenAI and Anthropic format
