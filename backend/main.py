@@ -11,6 +11,10 @@ import uuid
 import json
 import asyncio
 
+# Load .env from project root for tracing/provider credentials
+from dotenv import load_dotenv
+load_dotenv()
+
 from . import storage
 from .council import generate_conversation_title, generate_search_query, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings, PROVIDERS
 from .search import perform_web_search, SearchProvider
