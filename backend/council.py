@@ -21,6 +21,7 @@ from .providers.openrouter import OpenRouterProvider
 from .providers.ollama import OllamaProvider
 from .providers.groq import GroqProvider
 from .providers.custom_openai import CustomOpenAIProvider
+from .providers.opencode_go import OpenCodeGoProvider
 
 # Initialize providers
 PROVIDERS = {
@@ -33,6 +34,7 @@ PROVIDERS = {
     "openrouter": OpenRouterProvider(),
     "ollama": OllamaProvider(),
     "custom": CustomOpenAIProvider(),
+    "opencode_go": OpenCodeGoProvider(),
 }
 
 def get_provider_for_model(model_id: str) -> Any:

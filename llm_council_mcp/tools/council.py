@@ -194,11 +194,51 @@ def register(server, base_url: str) -> None:
         return "Configuration imported successfully."
 
     @server.tool(description=(
-        "Reset all council configuration to factory defaults. "
-        "This clears all API keys, custom models, and prompts. "
-        "Irreversible — export first if you want to keep current settings."
+        "Run autonomous multi-round council deliberation (autocouncil). "
+        "The council iterates through multiple rounds of: Stage 1 (model responses), "
+        "Stage 2 (peer rankings), Stage 3 (chairman synthesis). "
+        "Each round's synthesis is fed back as context for the next round. "
+        "Convergence is detected when: same top model for 2 rounds, "
+        "answer length stable within 15%, or top model gets 75%+ consensus. "
+        "Returns structured result with rounds, convergence info, final answer, "
+        "answer history, and final rankings. "
+        "Models and chairman can be omitted to use configured defaults. "
+        "Max 5 rounds by default."
     ))
-    async def reset_config() -> str:
+    async def autocouncil_deliberate(
+        query: str,
+        models: list[str] | None = None,
+        chairman: str | None = None,
+        max_rounds: int = 5,
+    ) -> str:
+        async with CouncilClient(base_url) as client:
+            result = await client.autocouncil(
+                query=query,
+                models=models,
+                chairman=chairman,
+                max_rounds=max_rounds,
+            )
+
+        lines = [
+            f"Autocouncil complete — {result.get('rounds', 0)} round(s)",
+            f"Converged: {result.get('converged', False)}",
+        ]
+        if result.get("converged"):
+            lines.append(f"Convergence reason: {result.get('convergence_reason')}")
+
+        rankings = result.get("final_rankings", [])
+        if rankings:
+            lines.append("\nFinal Rankings:")
+            for r in rankings:
+                lines.append(
+                    f"  {r['model']}: avg rank {r['average_rank']} "
+                    f"({r['rankings_count']} voters)"
+                )
+
+        lines.append(f"\nFinal Answer:\n{result.get('final_answer', '')}")
+        return "\n".join(lines)
+
+
         try:
             async with CouncilClient(base_url) as client:
                 await client.reset_settings()

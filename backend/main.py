@@ -15,6 +15,7 @@ from . import storage
 from .council import generate_conversation_title, generate_search_query, stage1_collect_responses, stage2_collect_rankings, stage3_synthesize_final, calculate_aggregate_rankings, PROVIDERS
 from .search import perform_web_search, SearchProvider
 from .settings import get_settings, save_settings, update_settings, Settings, DEFAULT_COUNCIL_MODELS, DEFAULT_CHAIRMAN_MODEL, AVAILABLE_MODELS
+from .autocouncil import run_autocouncil
 
 app = FastAPI(title="LLM Council Plus API")
 
@@ -362,6 +363,7 @@ class UpdateSettingsRequest(BaseModel):
     mistral_api_key: Optional[str] = None
     deepseek_api_key: Optional[str] = None
     groq_api_key: Optional[str] = None
+    opencode_go_api_key: Optional[str] = None
 
     # Enabled Providers
     enabled_providers: Optional[Dict[str, bool]] = None
@@ -423,6 +425,7 @@ async def get_app_settings():
         "mistral_api_key_set": bool(settings.mistral_api_key),
         "deepseek_api_key_set": bool(settings.deepseek_api_key),
         "groq_api_key_set": bool(settings.groq_api_key),
+        "opencode_go_api_key_set": bool(settings.opencode_go_api_key),
         "custom_endpoint_api_key_set": bool(settings.custom_endpoint_api_key),
 
         # Enabled Providers
@@ -589,6 +592,9 @@ async def update_app_settings(request: UpdateSettingsRequest):
     if request.groq_api_key is not None:
         updates["groq_api_key"] = request.groq_api_key
 
+    if request.opencode_go_api_key is not None:
+        updates["opencode_go_api_key"] = request.opencode_go_api_key
+
     # Enabled Providers
     if request.enabled_providers is not None:
         updates["enabled_providers"] = request.enabled_providers
@@ -667,6 +673,7 @@ async def update_app_settings(request: UpdateSettingsRequest):
         "mistral_api_key_set": bool(settings.mistral_api_key),
         "deepseek_api_key_set": bool(settings.deepseek_api_key),
         "groq_api_key_set": bool(settings.groq_api_key),
+        "opencode_go_api_key_set": bool(settings.opencode_go_api_key),
         "custom_endpoint_api_key_set": bool(settings.custom_endpoint_api_key),
 
         # Enabled Providers
@@ -1072,6 +1079,120 @@ async def test_openrouter_api(request: TestOpenRouterRequest):
         return {"success": False, "message": "Request timed out"}
     except Exception as e:
         return {"success": False, "message": str(e)}
+
+
+class AutocouncilRequest(BaseModel):
+    """Request for the autocouncil deliberation endpoint."""
+    content: str
+    models: Optional[List[str]] = None
+    chairman: Optional[str] = None
+    max_rounds: int = 5
+
+
+@app.post("/api/autocouncil")
+async def autocouncil_deliberate(request: AutocouncilRequest, req: Request):
+    """
+    Run autonomous multi-round council deliberation.
+    
+    Streaming response via SSE with progress events:
+      autocouncil_start, round_start, stage1_start/complete, stage2_start/complete,
+      stage3_start/complete, round_complete, converged
+    
+    Or batch result when ?stream=false is passed.
+    """
+    from .config import get_council_models, get_chairman_model
+    
+    models = request.models or get_council_models()
+    chairman = request.chairman or get_chairman_model()
+    
+    if not models:
+        raise HTTPException(status_code=400, detail="No council models available")
+    if not chairman:
+        raise HTTPException(status_code=400, detail="No chairman model available")
+    
+    stream_mode = req.query_params.get("stream", "true").lower() != "false"
+    
+    if not stream_mode:
+        # Batch mode
+        result = await run_autocouncil(
+            query=request.content,
+            models=models,
+            chairman=chairman,
+            max_rounds=request.max_rounds,
+        )
+        return result
+    
+    # Streaming SSE mode
+    async def event_generator():
+        import json as _json
+        
+        try:
+            async def sse_callback(phase: str, data: dict):
+                yield f"data: {_json.dumps({'type': phase, 'data': data})}\n\n"
+            
+            # Can't yield from a callback, so use an asyncio.Queue
+            # Actually, the progress_callback is passed to run_autocouncil.
+            # We need a different approach: wrap run_autocouncil and emit SSE from the caller.
+            # For simplicity in streaming, we run the autocouncil without callback 
+            # and yield structured events from the returned answer_history.
+            
+            result = await run_autocouncil(
+                query=request.content,
+                models=models,
+                chairman=chairman,
+                max_rounds=request.max_rounds,
+            )
+            
+            # Emit structured result events
+            yield f"data: {_json.dumps({'type': 'autocouncil_start', 'data': {'max_rounds': request.max_rounds, 'models': models, 'chairman': chairman}})}\\n\\n"
+            await asyncio.sleep(0.05)
+            
+            for round_data in result.get("answer_history", []):
+                rnd = round_data["round"]
+                yield f"data: {_json.dumps({'type': 'round_start', 'data': {'round': rnd}})}\\n\\n"
+                await asyncio.sleep(0.02)
+                
+                yield f"data: {_json.dumps({'type': 'stage1_complete', 'data': {'round': rnd, 'results': len(round_data['stage1_results'])}})}\\n\\n"
+                await asyncio.sleep(0.02)
+                
+                yield f"data: {_json.dumps({'type': 'stage2_complete', 'data': {'round': rnd, 'results': len(round_data['stage2_results'])}})}\\n\\n"
+                await asyncio.sleep(0.02)
+                
+                yield f"data: {_json.dumps({'type': 'stage3_complete', 'data': {'round': rnd}})}\\n\\n"
+                await asyncio.sleep(0.02)
+                
+                yield f"data: {_json.dumps({'type': 'round_complete', 'data': {'round': rnd, 'aggregate_rankings': round_data['aggregate_rankings'], 'synthesis_preview': round_data['synthesis'][:200]}})}\\n\\n"
+                await asyncio.sleep(0.02)
+            
+            if result.get("converged"):
+                yield f"data: {_json.dumps({'type': 'converged', 'data': {'round': result['rounds'], 'reason': result['convergence_reason']}})}\\n\\n"
+            
+            # Final result
+            final_payload = {
+                "rounds": result["rounds"],
+                "converged": result["converged"],
+                "convergence_reason": result["convergence_reason"],
+                "final_answer": result["final_answer"],
+                "final_rankings": result["final_rankings"],
+            }
+            yield f"data: {_json.dumps({'type': 'autocouncil_complete', 'data': final_payload})}\\n\\n"
+            
+            yield f"data: {_json.dumps({'type': 'complete'})}\\n\\n"
+            
+        except asyncio.CancelledError:
+            yield f"data: {_json.dumps({'type': 'error', 'message': 'Request cancelled'})}\\n\\n"
+        except Exception as e:
+            logger.error(f"Autocouncil stream error: {e}")
+            yield f"data: {_json.dumps({'type': 'error', 'message': str(e)})}\\n\\n"
+    
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
 
 
 if os.path.isdir(FRONTEND_DIST_DIR):

@@ -20,7 +20,8 @@ DEFAULT_ENABLED_PROVIDERS = {
     "ollama": False,
     "groq": False,
     "direct": False,  # Master toggle for all direct connections
-    "custom": False   # Custom OpenAI-compatible endpoint
+    "custom": False,  # Custom OpenAI-compatible endpoint
+    "opencode_go": False,
 }
 
 # Default direct provider toggles (individual)
@@ -30,7 +31,8 @@ DEFAULT_DIRECT_PROVIDER_TOGGLES = {
     "google": False,
     "mistral": False,
     "deepseek": False,
-    "groq": False
+    "groq": False,
+    "opencode_go": False,
 }
 
 
@@ -85,6 +87,7 @@ class Settings(BaseModel):
     mistral_api_key: Optional[str] = None
     deepseek_api_key: Optional[str] = None
     groq_api_key: Optional[str] = None
+    opencode_go_api_key: Optional[str] = None
 
     # Ollama Settings
     ollama_base_url: str = "http://localhost:11434"
