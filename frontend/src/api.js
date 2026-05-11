@@ -1,5 +1,5 @@
 /**
- * API client for the LLM Council backend.
+ * API client for the Autocouncil LLM backend.
  */
 
 // Dynamically determine API base URL based on current hostname
