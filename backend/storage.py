@@ -200,15 +200,16 @@ def list_conversations() -> List[Dict[str, Any]]:
     return index
 
 
-def add_user_message(conversation_id: str, content: str):
-    """
-    Add a user message to a conversation.
+def add_user_message(conversation_id: str, content: str, conversation: Optional[Dict[str, Any]] = None):
+    """Add a user message to a conversation.
 
     Args:
         conversation_id: Conversation identifier
         content: User message content
+        conversation: Pre-loaded conversation dict (avoids redundant disk read)
     """
-    conversation = get_conversation(conversation_id)
+    if conversation is None:
+        conversation = get_conversation(conversation_id)
     if conversation is None:
         raise ValueError(f"Conversation {conversation_id} not found")
 
@@ -224,22 +225,22 @@ def add_assistant_message(
     conversation_id: str,
     stage1: List[Dict[str, Any]],
     stage2: Optional[List[Dict[str, Any]]] = None,
-    stage3: Optional[Dict[str,Any]] = None,
-    metadata: Optional[Dict[str, Any]] = None
+    stage3: Optional[Dict[str, Any]] = None,
+    metadata: Optional[Dict[str, Any]] = None,
+    conversation: Optional[Dict[str, Any]] = None
 ):
-    """
-    Add an assistant message to a conversation.
-    
-    Supports partial execution modes where stage2 and/or stage3 may be None.
-    
+    """Add an assistant message to a conversation.
+
     Args:
         conversation_id: Conversation identifier
         stage1: List of individual model responses (always present)
         stage2: List of model rankings (None if execution_mode was 'chat_only')
         stage3: Final synthesized response (None if execution_mode was not 'full')
         metadata: Optional metadata including execution_mode, label_to_model, etc.
+        conversation: Pre-loaded conversation dict (avoids redundant disk read)
     """
-    conversation = get_conversation(conversation_id)
+    if conversation is None:
+        conversation = get_conversation(conversation_id)
     if conversation is None:
         raise ValueError(f"Conversation {conversation_id} not found")
 
@@ -247,13 +248,11 @@ def add_assistant_message(
         "role": "assistant",
         "stage1": stage1,
     }
-    
-    # Only include stage2 and stage3 if they were executed
+
     if stage2 is not None:
         message["stage2"] = stage2
     if stage3 is not None:
         message["stage3"] = stage3
-
     if metadata:
         message["metadata"] = metadata
 

@@ -6,7 +6,6 @@ import logging
 from . import openrouter
 from . import ollama_client
 from .config import get_council_models, get_chairman_model
-from .search import perform_web_search, SearchProvider
 from .settings import get_settings
 
 logger = logging.getLogger(__name__)
@@ -84,7 +83,7 @@ async def query_models_parallel(models: List[str], messages: List[Dict[str, str]
     return dict(results)
 
 
-async def stage1_collect_responses(user_query: str, search_context: str = "", request: Any = None) -> Any:
+async def stage1_collect_responses(user_query: str, search_context: str = "", request: Any = None, models_override: "List[str] | None" = None, history: "List[Dict[str, str]] | None" = None) -> Any:
     """
     Stage 1: Collect individual responses from all council models.
 
@@ -92,6 +91,8 @@ async def stage1_collect_responses(user_query: str, search_context: str = "", re
         user_query: The user's question
         search_context: Optional web search results to provide context
         request: FastAPI request object for checking disconnects
+        models_override: Per-request model list (bypasses global config)
+        history: Prior conversation turns as [{role, content}, ...] for multi-turn
 
     Yields:
         - First yield: total_models (int)
@@ -120,10 +121,9 @@ async def stage1_collect_responses(user_query: str, search_context: str = "", re
         logger.warning(f"Error formatting Stage 1 prompt: {e}. Using fallback.")
         prompt = f"{search_context_block}Question: {user_query}" if search_context_block else user_query
 
-    messages = [{"role": "user", "content": prompt}]
+    messages = (history or []) + [{"role": "user", "content": prompt}]
 
-    # Prepare tasks for all models
-    models = get_council_models()
+    models = models_override if models_override is not None and len(models_override) > 0 else get_council_models()
     
     # Yield total count first
     yield len(models)
@@ -334,7 +334,8 @@ async def stage3_synthesize_final(
     user_query: str,
     stage1_results: List[Dict[str, Any]],
     stage2_results: List[Dict[str, Any]],
-    search_context: str = ""
+    search_context: str = "",
+    chairman_override: "str | None" = None
 ) -> Dict[str, Any]:
     """
     Stage 3: Chairman synthesizes final response.
@@ -343,6 +344,8 @@ async def stage3_synthesize_final(
         user_query: The original user query
         stage1_results: Individual model responses from Stage 1
         stage2_results: Rankings from Stage 2
+        search_context: Optional web search results
+        chairman_override: Per-request chairman model (bypasses global config)
 
     Returns:
         Dict with 'model' and 'response' keys
@@ -400,7 +403,7 @@ async def stage3_synthesize_final(
         messages = [{"role": "user", "content": chairman_prompt}]
 
     # Query the chairman model with error handling
-    chairman_model = get_chairman_model()
+    chairman_model = chairman_override if chairman_override else get_chairman_model()
     chairman_temp = settings.chairman_temperature
 
     try:

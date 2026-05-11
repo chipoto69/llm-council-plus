@@ -214,54 +214,30 @@ async def test_deliberation_with_one_model_failure(server):
 
 @pytest.mark.asyncio
 async def test_quick_chat_workflow(server):
-    """quick_chat sets single model, streams, restores original settings."""
-    chat_events = (
-        _sse({"type": "stage1_complete", "data": [
-            {"model": "openai:gpt-4.1", "response": "42", "error": None},
-            # Backend duplicates the model in council_models; stream may include two entries
-            {"model": "openai:gpt-4.1", "response": "42 again", "error": None},
-        ]})
-        + _sse({"type": "complete"})
-    )
-    put_calls = []
+    """quick_chat uses /api/ask — no settings mutation."""
+    ask_calls = []
 
-    def capture_put(request):
-        put_calls.append(json.loads(request.content))
-        return httpx.Response(200, json={"success": True})
+    def capture_ask(request):
+        ask_calls.append(json.loads(request.content))
+        return httpx.Response(200, json={
+            "response": "42",
+            "model": "openai:gpt-4.1",
+            "error": None,
+        })
 
     with respx.mock:
-        respx.get(f"{BASE_URL}/api/settings").mock(
-            return_value=httpx.Response(200, json={
-                "council_models": ["anthropic:claude-sonnet-4", "openai:gpt-4.1"],
-                "chairman_model": "anthropic:claude-sonnet-4",
-            })
-        )
-        respx.put(f"{BASE_URL}/api/settings").mock(side_effect=capture_put)
-        respx.post(f"{BASE_URL}/api/conversations").mock(
-            return_value=httpx.Response(201, json={"id": "conv-qc", "title": ""})
-        )
-        respx.post(f"{BASE_URL}/api/conversations/conv-qc/message/stream").mock(
-            return_value=httpx.Response(
-                200,
-                text=chat_events,
-                headers={"content-type": "text/event-stream"},
-            )
-        )
+        respx.post(f"{BASE_URL}/api/ask").mock(side_effect=capture_ask)
         result = await server.call_tool("quick_chat", {"query": "What is 6x7?", "model": "openai:gpt-4.1"})
 
     data = get_json(result)
     assert data["response"] == "42"
-    assert data["status"] == "success"
     assert data["model"] == "openai:gpt-4.1"
+    assert data.get("error") is None
 
-    # Settings were overridden and then restored (PUT called twice)
-    assert len(put_calls) == 2
-    # First PUT overrides: model duplicated, chairman set to the requested model
-    assert put_calls[0]["council_models"] == ["openai:gpt-4.1", "openai:gpt-4.1"]
-    assert put_calls[0]["chairman_model"] == "openai:gpt-4.1"
-    # Second PUT restores originals
-    assert put_calls[1]["council_models"] == ["anthropic:claude-sonnet-4", "openai:gpt-4.1"]
-    assert put_calls[1]["chairman_model"] == "anthropic:claude-sonnet-4"
+    # Verify /api/ask was called with correct params
+    assert len(ask_calls) == 1
+    assert ask_calls[0]["models"] == ["openai:gpt-4.1"]
+    assert ask_calls[0]["execution_mode"] == "chat_only"
 
 
 @pytest.mark.asyncio
@@ -330,65 +306,42 @@ async def test_council_config_roundtrip(server):
 
 
 @pytest.mark.asyncio
-async def test_deliberation_model_override_restored_after_success(server):
-    """run_deliberation overrides council models then restores originals on success."""
-    original_settings = {
-        "council_models": ["openai:gpt-4.1", "anthropic:claude-sonnet-4"],
-        "chairman_model": "anthropic:claude-sonnet-4",
-    }
-    put_calls = []
+async def test_deliberation_model_override_uses_per_request(server):
+    """run_deliberation passes model overrides in stream payload, no settings mutation."""
+    stream_calls = []
 
-    def capture_put(request):
-        put_calls.append(json.loads(request.content))
-        return httpx.Response(200, json={"success": True})
+    def capture_stream(request):
+        stream_calls.append(json.loads(request.content))
+        return httpx.Response(
+            200,
+            text=FULL_DELIBERATION_EVENTS,
+            headers={"content-type": "text/event-stream"},
+        )
 
     with respx.mock:
-        respx.get(f"{BASE_URL}/api/settings").mock(
-            return_value=httpx.Response(200, json=original_settings)
-        )
-        respx.put(f"{BASE_URL}/api/settings").mock(side_effect=capture_put)
         respx.post(f"{BASE_URL}/api/conversations").mock(
             return_value=httpx.Response(201, json={"id": "conv-override", "title": ""})
         )
         respx.post(f"{BASE_URL}/api/conversations/conv-override/message/stream").mock(
-            return_value=httpx.Response(
-                200,
-                text=FULL_DELIBERATION_EVENTS,
-                headers={"content-type": "text/event-stream"},
-            )
+            side_effect=capture_stream
         )
         override_models = ["groq:llama3-70b-8192", "ollama:llama3"]
         result = await server.call_tool("run_deliberation", {
-            "query": "test override and restore",
+            "query": "test override",
             "models": override_models,
         })
         data = get_json(result)
 
-    # PUT called twice: first override, then restore
-    assert len(put_calls) == 2
-    assert put_calls[0]["council_models"] == override_models
-    assert put_calls[1]["council_models"] == original_settings["council_models"]
+    # council_models passed in stream body, no PUT to settings
+    assert len(stream_calls) == 1
+    assert stream_calls[0]["council_models"] == override_models
     assert data["chairman_answer"] is not None
 
 
 @pytest.mark.asyncio
-async def test_deliberation_model_override_restored_on_exception(server):
-    """run_deliberation restores original models even when an exception occurs."""
-    original_settings = {
-        "council_models": ["openai:gpt-4.1", "anthropic:claude-sonnet-4"],
-        "chairman_model": "anthropic:claude-sonnet-4",
-    }
-    put_calls = []
-
-    def capture_put(request):
-        put_calls.append(json.loads(request.content))
-        return httpx.Response(200, json={"success": True})
-
+async def test_deliberation_model_override_no_settings_on_exception(server):
+    """run_deliberation does not touch settings even on stream failure."""
     with respx.mock:
-        respx.get(f"{BASE_URL}/api/settings").mock(
-            return_value=httpx.Response(200, json=original_settings)
-        )
-        respx.put(f"{BASE_URL}/api/settings").mock(side_effect=capture_put)
         respx.post(f"{BASE_URL}/api/conversations").mock(
             return_value=httpx.Response(201, json={"id": "conv-exc", "title": ""})
         )
@@ -401,11 +354,6 @@ async def test_deliberation_model_override_restored_on_exception(server):
                 "query": "test",
                 "models": ["groq:llama3-70b-8192", "ollama:llama3"],
             })
-
-    # Original settings must be restored even after the exception
-    assert len(put_calls) == 2
-    assert put_calls[0]["council_models"] == ["groq:llama3-70b-8192", "ollama:llama3"]
-    assert put_calls[1]["council_models"] == original_settings["council_models"]
 
 
 @pytest.mark.asyncio
@@ -504,36 +452,14 @@ async def test_stage2_rankings_aggregate_correctly(server):
 
 @pytest.mark.asyncio
 async def test_quick_chat_no_response_returns_error(server):
-    """quick_chat returns error JSON when stage1 produces no model results."""
-    empty_events = (
-        _sse({"type": "stage1_complete", "data": []})
-        + _sse({"type": "complete"})
-    )
+    """quick_chat propagates 502 from /api/ask when all models fail."""
     with respx.mock:
-        respx.get(f"{BASE_URL}/api/settings").mock(
-            return_value=httpx.Response(200, json={
-                "council_models": ["openai:gpt-4.1"],
-                "chairman_model": "openai:gpt-4.1",
-            })
+        respx.post(f"{BASE_URL}/api/ask").mock(
+            return_value=httpx.Response(502, json={"detail": "All models failed: timeout"})
         )
-        respx.put(f"{BASE_URL}/api/settings").mock(
-            return_value=httpx.Response(200, json={"success": True})
-        )
-        respx.post(f"{BASE_URL}/api/conversations").mock(
-            return_value=httpx.Response(201, json={"id": "conv-empty", "title": ""})
-        )
-        respx.post(f"{BASE_URL}/api/conversations/conv-empty/message/stream").mock(
-            return_value=httpx.Response(
-                200,
-                text=empty_events,
-                headers={"content-type": "text/event-stream"},
-            )
-        )
-        result = await server.call_tool("quick_chat", {
-            "query": "test",
-            "model": "openai:gpt-4.1",
-        })
 
-    data = get_json(result)
-    assert "error" in data
-    assert data["error"] == "No response received."
+        with pytest.raises(Exception):
+            await server.call_tool("quick_chat", {
+                "query": "test",
+                "model": "openai:gpt-4.1",
+            })

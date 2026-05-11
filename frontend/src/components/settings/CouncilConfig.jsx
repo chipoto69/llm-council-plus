@@ -1,4 +1,5 @@
 import React from 'react';
+import { DEFAULT_EXECUTION_MODE } from '../../api';
 import SearchableModelSelect from '../SearchableModelSelect';
 
 const DIRECT_PROVIDERS = [
@@ -75,6 +76,8 @@ export default function CouncilConfig({
             return models.filter(m => !m.id.startsWith('ollama:'));
         }
     };
+
+    const chairmanDisabled = (settings?.execution_mode || DEFAULT_EXECUTION_MODE) !== 'full';
 
     const getMemberFilter = (index) => {
         return councilMemberFilters[index] || 'remote';
@@ -313,7 +316,7 @@ export default function CouncilConfig({
                                             </div>
                                         )}
                                     </div>
-                                    {index >= 2 && (
+                                    {index >= 1 && (
                                         <button
                                             type="button"
                                             className="remove-member-button"
@@ -394,8 +397,7 @@ export default function CouncilConfig({
                         </p>
                     </div>
                 </div>
-                {/* Chairman */}
-                <div className="subsection" style={{ marginTop: '24px' }}>
+                <div className={`subsection ${chairmanDisabled ? 'subsection--disabled' : ''}`} style={{ marginTop: '24px' }}>
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                         <h4 style={{ margin: 0 }}>Chairman Model</h4>
                         <div className="model-type-toggle">
@@ -406,7 +408,7 @@ export default function CouncilConfig({
                                     setChairmanFilter('remote');
                                     setChairmanModel('');
                                 }}
-                                disabled={!enabledProviders.openrouter && !enabledProviders.direct && !enabledProviders.groq && !enabledProviders.custom}
+                                disabled={chairmanDisabled || (!enabledProviders.openrouter && !enabledProviders.direct && !enabledProviders.groq && !enabledProviders.custom)}
                                 title={!enabledProviders.openrouter && !enabledProviders.direct && !enabledProviders.groq && !enabledProviders.custom ? 'Enable a remote provider first' : ''}
                             >
                                 Remote
@@ -418,14 +420,19 @@ export default function CouncilConfig({
                                     setChairmanFilter('local');
                                     setChairmanModel('');
                                 }}
-                                disabled={!enabledProviders.ollama || ollamaAvailableModels.length === 0}
+                                disabled={chairmanDisabled || !enabledProviders.ollama || ollamaAvailableModels.length === 0}
                                 title={!enabledProviders.ollama || ollamaAvailableModels.length === 0 ? 'Enable and connect Ollama first' : ''}
                             >
                                 Local
                             </button>
                         </div>
                     </div>
-                    <div 
+                    {chairmanDisabled && (
+                        <p className="section-description" style={{ marginBottom: '8px', fontStyle: 'italic' }}>
+                            Chairman is only used in Full Deliberation mode.
+                        </p>
+                    )}
+                    <div
                         className={`chairman-selection ${validationErrors.chairman ? 'validation-error' : ''}`}
                         ref={chairmanSelectRef}
                     >
@@ -434,6 +441,7 @@ export default function CouncilConfig({
                             value={chairmanModel}
                             onChange={(value) => setChairmanModel(value)}
                             placeholder="Search models..."
+                            isDisabled={chairmanDisabled}
                             isLoading={isLoadingModels}
                             allModels={allModels}
                         />
@@ -460,7 +468,7 @@ export default function CouncilConfig({
                                 value={chairmanTemperature}
                                 onChange={(e) => setChairmanTemperature(parseFloat(e.target.value))}
                                 className="heat-slider"
-                                disabled={chairmanModel.includes('gpt-5.1') || chairmanModel.includes('o1-') || chairmanModel.includes('o3-')}
+                                disabled={chairmanDisabled || chairmanModel.includes('gpt-5.1') || chairmanModel.includes('o1-') || chairmanModel.includes('o3-')}
                             />
                             <span className="heat-icon hot">🔥</span>
                         </div>

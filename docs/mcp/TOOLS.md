@@ -1,6 +1,6 @@
 # MCP Tools Reference
 
-The LLM Council Plus MCP server exposes 13 tools grouped into four categories. Your AI assistant calls these automatically based on what you ask it to do — you rarely need to specify a tool name directly.
+The LLM Council Plus MCP server exposes 14 tools grouped into four categories. Your AI assistant calls these automatically based on what you ask it to do — you rarely need to specify a tool name directly.
 
 ---
 
@@ -60,7 +60,7 @@ Updates council members, chairman, temperatures, or execution mode.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
-| `models` | array of strings | No | 2–8 model IDs for the council |
+| `models` | array of strings | No | 1–8 model IDs for the council |
 | `chairman` | string | No | Model ID for the chairman |
 | `stage1_temperature` | float (0.0–2.0) | No | Stage 1 creativity level |
 | `stage2_temperature` | float (0.0–2.0) | No | Stage 2 ranking consistency |
@@ -181,13 +181,13 @@ Must be called after `run_stage2` with the same `conversation_id`.
 
 ### `run_deliberation`
 
-Runs the full 3-stage deliberation in a single call. This is the most common tool for end-to-end use.
+Runs the full 3-stage deliberation in a single call. This is the most common tool for end-to-end use. Per-request model overrides never modify global settings.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `query` | string | Yes | The question or prompt |
 | `web_search` | boolean | No | Enable web search context (default: false) |
-| `models` | array of strings | No | Override council members for this run only |
+| `models` | array of strings | No | Override council members for this run only (1+ models) |
 
 **Example prompt:** "Ask the council: what are the pros and cons of microservices?"
 
@@ -206,7 +206,7 @@ Runs the full 3-stage deliberation in a single call. This is the most common too
 
 ### `quick_chat`
 
-Sends a query to a single model with no deliberation. Useful for fast lookups or when you have a preference for a specific model.
+Sends a query to a single model with no deliberation. Uses the one-shot `/api/ask` endpoint — no conversation state, no settings mutation. **Stateless**: each call is independent with no memory. For multi-turn, use `chat` instead.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -220,7 +220,43 @@ Sends a query to a single model with no deliberation. Useful for fast lookups or
 ```json
 {
   "model": "openai:gpt-4.1",
-  "content": "REST and GraphQL are both API paradigms, but they differ in...",
+  "response": "REST and GraphQL are both API paradigms, but they differ in...",
+  "error": null,
+  "web_search_used": false
+}
+```
+
+### `chat`
+
+Chat with a model in a multi-turn conversation. The model sees the full conversation history from prior turns, so follow-up questions work naturally. First call: omit `conversation_id` to start a new conversation. Subsequent calls: pass the `conversation_id` from the previous response to continue.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `query` | string | Yes | The question or follow-up |
+| `model` | string | Yes | Model ID (e.g., `openai:gpt-4.1`) |
+| `conversation_id` | string | No | Pass from previous response to continue conversation |
+| `web_search` | boolean | No | Enable web search context (default: false) |
+
+**Example prompt:** "Chat with Claude about quantum computing, then ask a follow-up"
+
+**First call response:**
+```json
+{
+  "conversation_id": "abc-123",
+  "model": "anthropic:claude-sonnet-4",
+  "response": "Quantum computing uses qubits that can exist in superposition...",
+  "error": null,
+  "web_search_used": false
+}
+```
+
+**Follow-up call** (pass `conversation_id: "abc-123"`):
+```json
+{
+  "conversation_id": "abc-123",
+  "model": "anthropic:claude-sonnet-4",
+  "response": "Building on what I explained earlier about superposition, entanglement allows...",
+  "error": null,
   "web_search_used": false
 }
 ```

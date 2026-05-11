@@ -149,15 +149,78 @@ The AI recognizes you want a direct single-model response, not a full deliberati
 }
 ```
 
+This uses the one-shot `/api/ask` endpoint internally — no conversation is created, no settings are mutated.
+
 Response:
 ```json
 {
   "model": "openai:gpt-4.1",
-  "content": "REST and GraphQL are both approaches to building APIs, but they differ fundamentally in how clients request data.\n\n**REST** organizes endpoints around resources (e.g., `/users/123`, `/posts`). Each endpoint returns a fixed shape of data. If you need user data plus their posts, you typically make two requests.\n\n**GraphQL** provides a single endpoint where clients specify exactly what fields they need in a query. You can fetch a user and their posts in one request, getting precisely the fields you want — nothing more.\n\n**When to use REST:** Simpler CRUD APIs, public APIs where caching is important, teams unfamiliar with GraphQL.\n\n**When to use GraphQL:** Complex, nested data requirements; mobile clients sensitive to over-fetching; rapidly evolving frontends that need flexibility.",
+  "response": "REST and GraphQL are both approaches to building APIs, but they differ fundamentally in how clients request data.\n\n**REST** organizes endpoints around resources (e.g., `/users/123`, `/posts`). Each endpoint returns a fixed shape of data. If you need user data plus their posts, you typically make two requests.\n\n**GraphQL** provides a single endpoint where clients specify exactly what fields they need in a query. You can fetch a user and their posts in one request, getting precisely the fields you want — nothing more.\n\n**When to use REST:** Simpler CRUD APIs, public APIs where caching is important, teams unfamiliar with GraphQL.\n\n**When to use GraphQL:** Complex, nested data requirements; mobile clients sensitive to over-fetching; rapidly evolving frontends that need flexibility.",
+  "error": null,
   "web_search_used": false
 }
 ```
 
 **What your AI presents to you:**
 
-The AI presents the content directly, typically as a formatted response. Because this is `quick_chat` (Stage 1 only, single model), there are no rankings or chairman synthesis — you get the raw model output immediately.
+The AI presents the response directly, typically as a formatted answer. Because this is `quick_chat` (single model, no deliberation), there are no rankings or chairman synthesis — you get the raw model output immediately.
+
+---
+
+## Example 4: Multi-turn conversation with follow-ups
+
+**What you say to your AI:**
+
+> "Chat with Claude about how async/await works in Python"
+
+**What happens behind the scenes (first call):**
+
+The AI uses the `chat` tool to start a new conversation:
+
+```json
+{
+  "tool": "chat",
+  "input": {
+    "query": "How does async/await work in Python?",
+    "model": "anthropic:claude-sonnet-4"
+  }
+}
+```
+
+Response:
+```json
+{
+  "conversation_id": "conv-abc-123",
+  "model": "anthropic:claude-sonnet-4",
+  "response": "Python's async/await is built on coroutines and an event loop...",
+  "error": null,
+  "web_search_used": false
+}
+```
+
+**You then ask a follow-up:**
+
+> "Can you show me a concrete example with aiohttp?"
+
+**What happens (second call):**
+
+The AI passes the same `conversation_id` to continue the conversation:
+
+```json
+{
+  "tool": "chat",
+  "input": {
+    "query": "Can you show me a concrete example with aiohttp?",
+    "model": "anthropic:claude-sonnet-4",
+    "conversation_id": "conv-abc-123"
+  }
+}
+```
+
+The model receives the full prior conversation as context and responds with a relevant example building on its previous explanation.
+
+**Key behavior:**
+- The `conversation_id` links follow-up messages to the same conversation
+- The model sees all prior user/assistant turns automatically
+- No need to repeat context or re-explain — the model remembers
+- For one-off questions without memory, use `quick_chat` instead

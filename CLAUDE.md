@@ -201,19 +201,34 @@ useEffect(() => {
 
 ```
 User Query (+ optional web search)
-    ↓
+ ↓
 [Web Search: DuckDuckGo/Tavily/Brave + Jina Reader]
-    ↓
+ ↓
 Stage 1: Parallel queries → Stream individual responses
-    ↓
+ ↓
 Stage 2: Anonymize → Parallel peer rankings → Parse rankings
-    ↓
+ ↓
 Calculate aggregate rankings
-    ↓
+ ↓
 Stage 3: Chairman synthesis → Stream final answer
-    ↓
+ ↓
 Save conversation (stage1, stage2, stage3 only)
 ```
+
+## API Endpoints
+
+### One-Shot Query (No State)
+```
+POST /api/ask
+Body: {content, models?, web_search?, execution_mode?}
+→ JSON response (no conversation created)
+```
+
+### Per-Request Model Overrides
+Both `/api/conversations/{id}/message` (sync) and `/api/conversations/{id}/message/stream` (SSE) accept optional `council_models` and `chairman_model` fields that override global config for that request only. Never mutate settings for ad-hoc queries.
+
+### Minimum Model Count
+The minimum is 1 model (not 2). Single-model queries are valid for any execution mode.
 
 ## Execution Modes
 
@@ -291,6 +306,18 @@ curl https://your-endpoint.com/v1/models -H "Authorization: Bearer $API_KEY"
 - Always provide full content when writing/editing files
 - FastAPI: Inject raw `Request` object to access `is_disconnected()`
 - React: Use spread operators for immutable state updates (StrictMode runs effects twice)
+
+## Versioning Checklist
+
+When bumping the version, **all** of the following files must be updated together:
+
+| File | Location of version |
+|------|-------------------|
+| `CHANGELOG.md` | `## [x.y.z]` header at top |
+| `frontend/src/components/Sidebar.jsx` | `<div className="sidebar-version">vX.Y.Z</div>` |
+| `skills/llm-council-api/SKILL.md` | YAML frontmatter `version: x.y.z` |
+
+Always update all three in the same commit. The CHANGELOG drives the canonical version; the UI and skill must match.
 
 ## Future Enhancements
 

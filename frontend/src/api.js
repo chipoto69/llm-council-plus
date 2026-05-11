@@ -17,6 +17,8 @@ const getApiBase = () => {
 
 const API_BASE = getApiBase();
 
+export const DEFAULT_EXECUTION_MODE = 'full';
+
 export const api = {
   /**
    * List all conversations.

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
-import { api } from '../api';
+import { api, DEFAULT_EXECUTION_MODE } from '../api';
 import SearchableModelSelect from './SearchableModelSelect';
 import ProviderSettings from './settings/ProviderSettings';
 import CouncilConfig from './settings/CouncilConfig';
@@ -1235,8 +1235,8 @@ export default function Settings({ onClose, ollamaStatus, onRefreshOllama, initi
       return;
     }
 
-    // If council members are selected but no chairman, show error
-    if (hasAnyCouncilMember && !hasChairman) {
+    const currentMode = settings?.execution_mode || DEFAULT_EXECUTION_MODE;
+    if (currentMode === 'full' && hasAnyCouncilMember && !hasChairman) {
       setValidationErrors({ chairman: true });
       setError('Please select a Chairman to complete the council configuration.');
       

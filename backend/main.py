@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Literal, Optional
 import os
 import uuid
 import json
@@ -48,11 +48,132 @@ class CreateConversationRequest(BaseModel):
     pass
 
 
+ExecutionMode = Literal["chat_only", "chat_ranking", "full"]
+
+
 class SendMessageRequest(BaseModel):
-    """Request to send a message in a conversation."""
     content: str
     web_search: bool = False
-    execution_mode: str = "full"  # 'chat_only', 'chat_ranking', 'full'
+    execution_mode: ExecutionMode = "full"
+    council_models: Optional[List[str]] = None
+    chairman_model: Optional[str] = None
+
+
+class AskRequest(BaseModel):
+    content: str
+    models: Optional[List[str]] = None
+    chairman_model: Optional[str] = None
+    web_search: bool = False
+    execution_mode: ExecutionMode = "chat_only"
+
+
+def _validate_execution_mode(mode: str) -> None:
+    """Validate execution_mode for endpoints using Optional[str] (e.g. settings update)."""
+    valid = ("chat_only", "chat_ranking", "full")
+    if mode not in valid:
+        raise HTTPException(status_code=400, detail=f"Invalid execution_mode. Must be one of: {list(valid)}")
+
+
+def _apply_search_env(settings: Settings) -> SearchProvider:
+    """Set env vars for the active search provider and return it."""
+    provider = SearchProvider(settings.search_provider)
+    if settings.serper_api_key and provider == SearchProvider.SERPER:
+        os.environ["SERPER_API_KEY"] = settings.serper_api_key
+    if settings.tavily_api_key and provider == SearchProvider.TAVILY:
+        os.environ["TAVILY_API_KEY"] = settings.tavily_api_key
+    if settings.brave_api_key and provider == SearchProvider.BRAVE:
+        os.environ["BRAVE_API_KEY"] = settings.brave_api_key
+    if settings.tinyfish_api_key and provider == SearchProvider.TINYFISH:
+        os.environ["TINYFISH_API_KEY"] = settings.tinyfish_api_key
+    return provider
+
+
+async def _fetch_search_context(content: str, settings: Settings) -> tuple:
+    """Run web search and return (search_context, search_query)."""
+    provider = _apply_search_env(settings)
+    search_query = generate_search_query(content)
+    search_result = await perform_web_search(
+        search_query,
+        settings.search_result_count,
+        provider,
+        settings.full_content_results,
+        settings.search_keyword_extraction,
+        hybrid_mode=settings.search_hybrid_mode
+    )
+    return search_result["results"], search_query, search_result
+
+
+def _build_chat_history(conversation: Dict[str, Any]) -> List[Dict[str, str]]:
+    """Extract prior turns from a conversation into [{role, content}, ...] for multi-turn context."""
+    history = []
+    for msg in conversation.get("messages", []):
+        if msg["role"] == "user":
+            history.append({"role": "user", "content": msg["content"]})
+        elif msg["role"] == "assistant":
+            # Prefer chairman synthesis (stage3), fall back to first stage1 response
+            content = None
+            if msg.get("stage3") and msg["stage3"].get("response"):
+                content = msg["stage3"]["response"]
+            elif msg.get("stage1") and len(msg["stage1"]) > 0:
+                first_success = next(
+                    (r for r in msg["stage1"] if not r.get("error")),
+                    msg["stage1"][0]
+                )
+                content = first_success.get("response", "")
+            if content:
+                history.append({"role": "assistant", "content": content})
+    return history
+
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class PipelineResult:
+    stage1: List[Dict[str, Any]] = field(default_factory=list)
+    stage2: List[Dict[str, Any]] = field(default_factory=list)
+    stage3: Optional[Dict[str, Any]] = None
+    label_to_model: Dict[str, str] = field(default_factory=dict)
+    aggregate_rankings: Any = None
+
+
+async def _run_council_pipeline(
+    content: str,
+    execution_mode: str,
+    search_context: str,
+    *,
+    models_override: Optional[List[str]] = None,
+    chairman_override: Optional[str] = None,
+    request: Optional[Request] = None,
+    history: Optional[List[Dict[str, str]]] = None,
+) -> PipelineResult:
+    """Shared orchestration for stage1 → stage2 → stage3 (non-streaming)."""
+    result = PipelineResult()
+
+    async for item in stage1_collect_responses(content, search_context, request=request, models_override=models_override, history=history):
+        if isinstance(item, int):
+            continue
+        result.stage1.append(item)
+
+    if not any(r for r in result.stage1 if not r.get('error')):
+        errors = [r.get('error_message', 'Unknown error') for r in result.stage1 if r.get('error')]
+        raise HTTPException(status_code=502, detail=f"All models failed: {'; '.join(errors)}")
+
+    if execution_mode in ("chat_ranking", "full"):
+        async for item in stage2_collect_rankings(content, result.stage1, search_context, request=request):
+            if isinstance(item, dict) and not item.get('model'):
+                result.label_to_model = item
+                continue
+            result.stage2.append(item)
+        result.aggregate_rankings = calculate_aggregate_rankings(result.stage2, result.label_to_model) if result.stage2 else None
+
+    if execution_mode == "full":
+        result.stage3 = await stage3_synthesize_final(
+            content, result.stage1, result.stage2, search_context,
+            chairman_override=chairman_override
+        )
+
+    return result
 
 
 class ConversationMetadata(BaseModel):
@@ -124,19 +245,11 @@ async def delete_conversation(conversation_id: str):
 @app.post("/api/conversations/{conversation_id}/message/stream")
 async def send_message_stream(conversation_id: str, body: SendMessageRequest, request: Request):
     """Send a message and stream the 3-stage council process."""
-    # Validate execution_mode
-    valid_modes = ["chat_only", "chat_ranking", "full"]
-    if body.execution_mode not in valid_modes:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid execution_mode. Must be one of: {valid_modes}"
-        )
-    
-    # Check if conversation exists
     conversation = storage.get_conversation(conversation_id)
     if conversation is None:
         raise HTTPException(status_code=404, detail="Conversation not found")
 
+    history = _build_chat_history(conversation)
     # Check if this is the first message
     is_first_message = len(conversation["messages"]) == 0
 
@@ -149,59 +262,39 @@ async def send_message_stream(conversation_id: str, body: SendMessageRequest, re
             label_to_model = {}
             aggregate_rankings = {}
             
-            # Add user message
-            storage.add_user_message(conversation_id, body.content)
+            storage.add_user_message(conversation_id, body.content, conversation=conversation)
 
             # Start title generation in parallel (don't await yet)
             title_task = None
             if is_first_message:
                 title_task = asyncio.create_task(generate_conversation_title(body.content))
 
-            # Perform web search if requested
             search_context = ""
             search_query = ""
             if body.web_search:
-                # Check for disconnect before starting search
                 if await request.is_disconnected():
-                    print("Client disconnected before web search")
                     raise asyncio.CancelledError("Client disconnected")
 
                 settings = get_settings()
-                provider = SearchProvider(settings.search_provider)
-
-                # Set API keys if configured
-                if settings.serper_api_key and provider == SearchProvider.SERPER:
-                    os.environ["SERPER_API_KEY"] = settings.serper_api_key
-                if settings.tavily_api_key and provider == SearchProvider.TAVILY:
-                    os.environ["TAVILY_API_KEY"] = settings.tavily_api_key
-                if settings.brave_api_key and provider == SearchProvider.BRAVE:
-                    os.environ["BRAVE_API_KEY"] = settings.brave_api_key
-                if settings.tinyfish_api_key and provider == SearchProvider.TINYFISH:
-                    os.environ["TINYFISH_API_KEY"] = settings.tinyfish_api_key
+                provider = _apply_search_env(settings)
 
                 yield f"data: {json.dumps({'type': 'search_start', 'data': {'provider': provider.value}})}\n\n"
 
-                # Check for disconnect before generating search query
                 if await request.is_disconnected():
-                    print("Client disconnected during search setup")
                     raise asyncio.CancelledError("Client disconnected")
 
-                # Generate search query (passthrough - no AI model needed)
                 search_query = generate_search_query(body.content)
 
-                # Check for disconnect before performing search
                 if await request.is_disconnected():
-                    print("Client disconnected before search execution")
                     raise asyncio.CancelledError("Client disconnected")
 
-                # Run search (now fully async for Tavily/Brave, threaded only for DuckDuckGo)
                 search_result = await perform_web_search(
-                    search_query, 
-                    settings.search_result_count,  # Configurable result count (default 8)
-                    provider, 
+                    search_query,
+                    settings.search_result_count,
+                    provider,
                     settings.full_content_results,
                     settings.search_keyword_extraction,
-                    hybrid_mode=settings.search_hybrid_mode  # Combine web+news for DuckDuckGo
+                    hybrid_mode=settings.search_hybrid_mode
                 )
                 search_context = search_result["results"]
                 extracted_query = search_result["extracted_query"]
@@ -215,7 +308,7 @@ async def send_message_stream(conversation_id: str, body: SendMessageRequest, re
             
             total_models = 0
             
-            async for item in stage1_collect_responses(body.content, search_context, request):
+            async for item in stage1_collect_responses(body.content, search_context, request, models_override=body.council_models, history=history):
                 if isinstance(item, int):
                     total_models = item
                     print(f"DEBUG: Sending stage1_init with total={total_models}")
@@ -272,7 +365,7 @@ async def send_message_stream(conversation_id: str, body: SendMessageRequest, re
                     print("Client disconnected before Stage 3")
                     raise asyncio.CancelledError("Client disconnected")
 
-                stage3_result = await stage3_synthesize_final(body.content, stage1_results, stage2_results, search_context)
+                stage3_result = await stage3_synthesize_final(body.content, stage1_results, stage2_results, search_context, chairman_override=body.chairman_model)
                 yield f"data: {json.dumps({'type': 'stage3_complete', 'data': stage3_result})}\n\n"
 
             # Wait for title generation if it was started
@@ -304,7 +397,8 @@ async def send_message_stream(conversation_id: str, body: SendMessageRequest, re
                 stage1_results,
                 stage2_results if body.execution_mode in ["chat_ranking", "full"] else None,
                 stage3_result if body.execution_mode == "full" else None,
-                metadata
+                metadata,
+                conversation=conversation
             )
 
             # Send completion event
@@ -337,6 +431,102 @@ async def send_message_stream(conversation_id: str, body: SendMessageRequest, re
             "Connection": "keep-alive",
         }
     )
+
+
+@app.post("/api/conversations/{conversation_id}/message")
+async def send_message_sync(conversation_id: str, body: SendMessageRequest):
+    """Send a message and return JSON response (non-streaming)."""
+    conversation = storage.get_conversation(conversation_id)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+
+    history = _build_chat_history(conversation)
+    storage.add_user_message(conversation_id, body.content, conversation=conversation)
+
+    search_context = ""
+    search_query = ""
+    if body.web_search:
+        settings = get_settings()
+        search_context, search_query, _ = await _fetch_search_context(body.content, settings)
+
+    result = await _run_council_pipeline(
+        body.content, body.execution_mode, search_context,
+        models_override=body.council_models, chairman_override=body.chairman_model,
+        history=history,
+    )
+
+    metadata = {"execution_mode": body.execution_mode}
+    if body.execution_mode in ("chat_ranking", "full"):
+        metadata["label_to_model"] = result.label_to_model
+        metadata["aggregate_rankings"] = result.aggregate_rankings
+    if search_context:
+        metadata["search_context"] = search_context
+    if search_query:
+        metadata["search_query"] = search_query
+
+    storage.add_assistant_message(
+        conversation_id,
+        result.stage1,
+        result.stage2 if body.execution_mode in ("chat_ranking", "full") else None,
+        result.stage3 if body.execution_mode == "full" else None,
+        metadata,
+        conversation=conversation
+    )
+
+    return {
+        "stage1": result.stage1,
+        "stage2": result.stage2 if result.stage2 else None,
+        "stage3": result.stage3,
+        "aggregate_rankings": result.aggregate_rankings if result.aggregate_rankings else None,
+        "label_to_model": result.label_to_model if result.label_to_model else None,
+    }
+
+
+@app.post("/api/ask")
+async def ask_oneshot(body: AskRequest):
+    """One-shot query: no conversation, no state. Returns JSON directly."""
+    settings = get_settings()
+    models = body.models if body.models else settings.council_models
+
+    if not models:
+        raise HTTPException(status_code=400, detail="At least one model is required")
+
+    search_context = ""
+    if body.web_search:
+        search_context, _, _ = await _fetch_search_context(body.content, settings)
+
+    result = await _run_council_pipeline(
+        body.content, body.execution_mode, search_context,
+        models_override=models, chairman_override=body.chairman_model
+    )
+
+    if body.execution_mode == "chat_only" and len(result.stage1) == 1:
+        r = result.stage1[0]
+        return {
+            "response": r.get("response"),
+            "model": r.get("model"),
+            "error": r.get("error"),
+        }
+
+    if body.execution_mode == "chat_only":
+        return {"responses": result.stage1}
+
+    if body.execution_mode == "chat_ranking":
+        return {
+            "responses": result.stage1,
+            "rankings": result.stage2,
+            "aggregate_rankings": result.aggregate_rankings,
+            "label_to_model": result.label_to_model,
+        }
+
+    return {
+        "response": result.stage3.get("response") if result.stage3 else None,
+        "chairman_model": result.stage3.get("model") if result.stage3 else None,
+        "responses": result.stage1,
+        "rankings": result.stage2,
+        "aggregate_rankings": result.aggregate_rankings,
+        "label_to_model": result.label_to_model,
+    }
 
 
 class UpdateSettingsRequest(BaseModel):
@@ -604,11 +794,10 @@ async def update_app_settings(request: UpdateSettingsRequest):
 
     # Council Configuration (unified)
     if request.council_models is not None:
-        # Validate that at least two models are selected
-        if len(request.council_models) < 2:
+        if len(request.council_models) < 1:
             raise HTTPException(
                 status_code=400,
-                detail="At least two council models must be selected"
+                detail="At least one council model must be selected"
             )
         if len(request.council_models) > 8:
             raise HTTPException(
@@ -636,14 +825,8 @@ async def update_app_settings(request: UpdateSettingsRequest):
     if request.stage2_temperature is not None:
         updates["stage2_temperature"] = request.stage2_temperature
 
-    # Prompts   # Execution Mode
     if request.execution_mode is not None:
-        valid_modes = ["chat_only", "chat_ranking", "full"]
-        if request.execution_mode not in valid_modes:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid execution_mode. Must be one of: {valid_modes}"
-            )
+        _validate_execution_mode(request.execution_mode)
         updates["execution_mode"] = request.execution_mode
 
     if updates:

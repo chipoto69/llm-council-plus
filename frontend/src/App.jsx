@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import Sidebar from './components/Sidebar';
 import ChatInterface from './components/ChatInterface';
 import Settings from './components/Settings';
-import { api } from './api';
+import { api, DEFAULT_EXECUTION_MODE } from './api';
 import './App.css';
 import './components/StageCopyButtons.css';
 
@@ -22,7 +22,7 @@ function App() {
   const [councilModels, setCouncilModels] = useState([]);
   const [chairmanModel, setChairmanModel] = useState(null);
   const [searchProvider, setSearchProvider] = useState('duckduckgo');
-  const [executionMode, setExecutionMode] = useState('full');
+  const [executionMode, setExecutionMode] = useState(DEFAULT_EXECUTION_MODE);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const abortControllerRef = useRef(null);
   const requestIdRef = useRef(0);
@@ -39,7 +39,7 @@ function App() {
       const settings = await api.getSettings();
 
       // Load execution mode preference
-      setExecutionMode(settings.execution_mode || 'full');
+      setExecutionMode(settings.execution_mode || DEFAULT_EXECUTION_MODE);
       setSearchProvider(settings.search_provider || 'duckduckgo');
 
       const hasApiKey = settings.openrouter_api_key_set ||

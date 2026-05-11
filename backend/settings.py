@@ -134,25 +134,45 @@ class Settings(BaseModel):
     convergence_mode: str = "any"  # Convergence trigger: 'any', 'same_top_model', 'length_stable', 'ranking_consensus'
 
 
+_settings_cache: Settings | None = None
+_settings_mtime: float = 0.0
+
+
 def get_settings() -> Settings:
-    """Load settings from file, or return defaults."""
+    """Load settings from file with mtime-based cache. Returns cached instance if file hasn't changed."""
+    global _settings_cache, _settings_mtime
+
     if SETTINGS_FILE.exists():
         try:
+            mtime = SETTINGS_FILE.stat().st_mtime
+            if _settings_cache is not None and mtime == _settings_mtime:
+                return _settings_cache
             with open(SETTINGS_FILE, "r") as f:
                 data = json.load(f)
-                return Settings(**data)
+                _settings_cache = Settings(**data)
+                _settings_mtime = mtime
+                return _settings_cache
         except Exception:
             pass
+
+    if _settings_cache is not None and not SETTINGS_FILE.exists():
+        _settings_cache = None
+        _settings_mtime = 0.0
+
     return Settings()
 
 
 def save_settings(settings: Settings) -> None:
-    """Save settings to file."""
-    # Ensure data directory exists
+    """Save settings to file and update cache."""
+    global _settings_cache, _settings_mtime
+
     SETTINGS_FILE.parent.mkdir(parents=True, exist_ok=True)
 
     with open(SETTINGS_FILE, "w") as f:
         json.dump(settings.model_dump(), f, indent=2)
+
+    _settings_cache = settings
+    _settings_mtime = SETTINGS_FILE.stat().st_mtime
 
 
 def update_settings(**kwargs) -> Settings:

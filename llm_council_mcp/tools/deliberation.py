@@ -17,6 +17,8 @@ def register(server, base_url: str) -> None:
         "Returns each model's response plus a summary of successes/failures. "
         "The conversation_id in the response can be passed to run_stage2 or run_stage3 "
         "if you want to continue the deliberation. "
+        "MULTI-TURN: Pass the same conversation_id from a previous call to send a follow-up "
+        "question — the models will see the full prior conversation context. "
         "Set web_search=true to enrich the query with live web search results."
     ))
     async def run_stage1(
@@ -92,7 +94,7 @@ def register(server, base_url: str) -> None:
         "Set web_search=true to enrich the query with live search results. "
         "Optionally override council models for this run only with the models parameter "
         "(list of model IDs with provider prefix, e.g. ['openai:gpt-4.1', 'anthropic:claude-sonnet-4']). "
-        "Original settings are always restored after the run, even on error."
+        "Per-request overrides never modify global settings."
     ))
     async def run_deliberation(
         query: str,
@@ -100,26 +102,16 @@ def register(server, base_url: str) -> None:
         models: list[str] | None = None,
     ) -> str:
         async with CouncilClient(base_url) as client:
-            # Temporarily override council models if requested
-            original_models = None
-            if models:
-                settings = await client.get_settings()
-                original_models = settings.get("council_models")
-                await client.update_settings(council_models=models)
-
-            try:
-                conv = await client.create_conversation()
-                conversation_id = conv["id"]
-                events = client.stream_message(
-                    conversation_id, query, web_search=web_search, execution_mode="full"
-                )
-                stage1, after1 = await buffer_stage1(events, conversation_id, query)
-                stage2, after2 = await buffer_stage2(after1, conversation_id)
-                stage3 = await buffer_stage3(after2, conversation_id)
-            finally:
-                # Restore original models if we overrode them
-                if original_models is not None:
-                    await client.update_settings(council_models=original_models)
+            conv = await client.create_conversation()
+            conversation_id = conv["id"]
+            events = client.stream_message(
+                conversation_id, query,
+                web_search=web_search, execution_mode="full",
+                council_models=models,
+            )
+            stage1, after1 = await buffer_stage1(events, conversation_id, query)
+            stage2, after2 = await buffer_stage2(after1, conversation_id)
+            stage3 = await buffer_stage3(after2, conversation_id)
 
         result = {
             "conversation_id": conversation_id,
@@ -137,7 +129,8 @@ def register(server, base_url: str) -> None:
         "model must include provider prefix: e.g. 'openai:gpt-4.1', "
         "'anthropic:claude-sonnet-4', 'ollama:llama3', 'groq:llama3-70b-8192'. "
         "Set web_search=true to include web search results in context. "
-        "Original council settings are always restored after the call."
+        "STATELESS: Each call is independent with no memory of previous exchanges. "
+        "For multi-turn conversations, use the 'chat' tool instead."
     ))
     async def quick_chat(
         query: str,
@@ -145,34 +138,53 @@ def register(server, base_url: str) -> None:
         web_search: bool = False,
     ) -> str:
         async with CouncilClient(base_url) as client:
-            settings = await client.get_settings()
-            original_models = settings.get("council_models")
-            original_chairman = settings.get("chairman_model")
+            result = await client.ask(
+                content=query,
+                models=[model],
+                web_search=web_search,
+                execution_mode="chat_only",
+            )
+        return json.dumps({
+            "model": result.get("model", model),
+            "response": result.get("response"),
+            "error": result.get("error"),
+            "web_search_used": web_search,
+        }, indent=2)
 
-            # Override council to single model for chat_only mode
-            await client.update_settings(council_models=[model, model], chairman_model=model)
-            try:
+    @server.tool(description=(
+        "Chat with a model in a multi-turn conversation. "
+        "The model sees the full conversation history from prior turns, "
+        "so follow-up questions work naturally. "
+        "First call: omit conversation_id to start a new conversation. "
+        "Subsequent calls: pass the conversation_id from the previous response to continue. "
+        "model must include provider prefix: e.g. 'openai:gpt-4.1', "
+        "'anthropic:claude-sonnet-4', 'ollama:llama3', 'groq:llama3-70b-8192'. "
+        "Set web_search=true to include web search results in context. "
+        "For one-shot questions without memory, use 'quick_chat' instead."
+    ))
+    async def chat(
+        query: str,
+        model: str,
+        conversation_id: str | None = None,
+        web_search: bool = False,
+    ) -> str:
+        async with CouncilClient(base_url) as client:
+            if not conversation_id:
                 conv = await client.create_conversation()
                 conversation_id = conv["id"]
-                events = client.stream_message(
-                    conversation_id, query, web_search=web_search, execution_mode="chat_only"
-                )
-                stage1, _ = await buffer_stage1(events, conversation_id, query)
-            finally:
-                await client.update_settings(
-                    council_models=original_models,
-                    chairman_model=original_chairman,
-                )
+            events = client.stream_message(
+                conversation_id, query,
+                web_search=web_search, execution_mode="chat_only",
+                council_models=[model],
+            )
+            result, _ = await buffer_stage1(events, conversation_id, query)
 
-        # Return just the single model's response
-        results = stage1.get("results", [])
-        if not results:
-            return json.dumps({"error": "No response received."})
-        # De-duplicate: if model was set twice, take the first unique response
-        first = results[0]
+        responses = result.get("results", [])
+        first = responses[0] if responses else {}
         return json.dumps({
-            "model": model,
+            "conversation_id": conversation_id,
+            "model": first.get("model", model),
             "response": first.get("response"),
-            "status": first.get("status"),
             "error": first.get("error"),
+            "web_search_used": web_search,
         }, indent=2)

@@ -143,6 +143,30 @@ class CouncilClient:
         resp.raise_for_status()
         return resp.json()
 
+    # ── One-Shot ───────────────────────────────────────────────────────────────
+
+    async def ask(
+        self,
+        content: str,
+        models: list[str] | None = None,
+        chairman_model: str | None = None,
+        web_search: bool = False,
+        execution_mode: str = "chat_only",
+    ) -> dict:
+        """One-shot query via POST /api/ask. No conversation state."""
+        payload: dict[str, Any] = {
+            "content": content,
+            "web_search": web_search,
+            "execution_mode": execution_mode,
+        }
+        if models:
+            payload["models"] = models
+        if chairman_model:
+            payload["chairman_model"] = chairman_model
+        resp = await self.client.post(f"{self.base_url}/api/ask", json=payload)
+        resp.raise_for_status()
+        return resp.json()
+
     # ── Streaming ─────────────────────────────────────────────────────────────
 
     async def stream_message(
@@ -151,18 +175,25 @@ class CouncilClient:
         content: str,
         web_search: bool = False,
         execution_mode: str = "full",
+        council_models: list[str] | None = None,
+        chairman_model: str | None = None,
     ) -> AsyncIterator[dict]:
         """Stream SSE events from the backend.
 
         Yields parsed event dicts (each has a 'type' field).
         Execution modes: 'full', 'chat_ranking', 'chat_only'
+        Per-request model overrides avoid mutating global config.
         """
         url = f"{self.base_url}/api/conversations/{conversation_id}/message/stream"
-        payload = {
+        payload: dict[str, Any] = {
             "content": content,
             "web_search": web_search,
             "execution_mode": execution_mode,
         }
+        if council_models:
+            payload["council_models"] = council_models
+        if chairman_model:
+            payload["chairman_model"] = chairman_model
         async with self.client.stream("POST", url, json=payload) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():

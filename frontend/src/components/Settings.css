@@ -1002,6 +1002,11 @@ input:checked+.slider:before {
   transform: translateX(20px);
 }
 
+.subsection--disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
 /* Disabled source toggle styles */
 .toggle-wrapper.source-disabled {
   opacity: 0.5;
