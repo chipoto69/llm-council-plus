@@ -238,7 +238,12 @@ def register(server, base_url: str) -> None:
         lines.append(f"\nFinal Answer:\n{result.get('final_answer', '')}")
         return "\n".join(lines)
 
-
+    @server.tool(description=(
+        "Reset all council configuration to factory defaults. "
+        "This clears all API keys, custom models, and prompts. "
+        "Irreversible — export first if you want to keep current settings."
+    ))
+    async def reset_config() -> str:
         try:
             async with CouncilClient(base_url) as client:
                 await client.reset_settings()

@@ -173,6 +173,32 @@ class CouncilClient:
                     except json.JSONDecodeError:
                         continue
 
+    # ── Autocouncil ───────────────────────────────────────────────────────────
+
+    async def autocouncil(
+        self,
+        query: str,
+        models: list[str] | None = None,
+        chairman: str | None = None,
+        max_rounds: int = 5,
+    ) -> dict:
+        """Run autonomous multi-round deliberation (batch mode)."""
+        payload: dict[str, Any] = {
+            "content": query,
+            "max_rounds": max_rounds,
+        }
+        if models is not None:
+            payload["models"] = models
+        if chairman is not None:
+            payload["chairman"] = chairman
+
+        resp = await self.client.post(
+            f"{self.base_url}/api/autocouncil?stream=false",
+            json=payload,
+        )
+        resp.raise_for_status()
+        return resp.json()
+
     # ── Provider Testing ──────────────────────────────────────────────────────
 
     async def test_provider(self, provider: str, api_key: str | None = None) -> dict:
