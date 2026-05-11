@@ -27,6 +27,7 @@ class OpenCodeGoProvider(LLMProvider):
     DEFAULT_MODELS = [
         "qwen3.6-plus",
         "deepseek-v4-pro",
+        "deepseek-v4-flash",
         "minimax-m2.7",
     ]
 

@@ -24,7 +24,7 @@ import json
 import logging
 import sys
 from collections import defaultdict
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from .council import (
     calculate_aggregate_rankings,
@@ -39,6 +39,9 @@ from .prompts import (
     STAGE1_SEARCH_CONTEXT_TEMPLATE,
 )
 from .settings import get_settings
+
+if TYPE_CHECKING:
+    from .tracing import TraceContext
 
 logger = logging.getLogger(__name__)
 
@@ -427,6 +430,20 @@ async def run_autocouncil(
             "final_rankings": [],
         }
 
+    # --- Langfuse tracing ---
+    from .tracing import (
+        trace_council_query,
+        trace_stage,
+        trace_convergence,
+        end_trace,
+    )
+    trace_ctx = trace_council_query(
+        query=query,
+        models=models,
+        chairman=chairman,
+        metadata={"max_rounds": max_rounds},
+    )
+
     # Track convergence state
     top_models: List[Optional[str]] = []
     answer_lengths: List[int] = []
@@ -453,6 +470,17 @@ async def run_autocouncil(
         )
         await _emit(progress_callback, "stage1_complete", {"round": round_idx, "results": len(stage1)})
 
+        # Trace round's Stage 1
+        if trace_ctx is not None:
+            for r in stage1:
+                trace_stage(
+                    trace_ctx,
+                    f"round.{round_idx}.stage1.{r['model']}",
+                    r["model"],
+                    input_data={"query": query, "previous_context": previous_synthesis},
+                    output_data=r,
+                )
+
         successful_s1 = [r for r in stage1 if not r.get("error")]
         if not successful_s1:
             logger.warning(f"Round {round_idx}: all models failed in Stage 1")
@@ -465,6 +493,17 @@ async def run_autocouncil(
             query, stage1, previous_synthesis, search_context
         )
         await _emit(progress_callback, "stage2_complete", {"round": round_idx, "results": len(stage2)})
+
+        # Trace round's Stage 2
+        if trace_ctx is not None:
+            for r in stage2:
+                trace_stage(
+                    trace_ctx,
+                    f"round.{round_idx}.stage2.{r['model']}",
+                    r["model"],
+                    input_data={"query": query, "label_map": label_map},
+                    output_data=r,
+                )
 
         # --- Aggregate rankings ---
         aggregate = calculate_aggregate_rankings(stage2, label_map)
@@ -479,6 +518,16 @@ async def run_autocouncil(
         await _emit(progress_callback, "stage3_complete", {"round": round_idx})
 
         synthesis = stage3.get("response", "")
+
+        # Trace round's Stage 3
+        if trace_ctx is not None:
+            trace_stage(
+                trace_ctx,
+                f"round.{round_idx}.stage3.chairman",
+                chairman,
+                input_data={"query": query, "previous_context": previous_synthesis},
+                output_data={"response": synthesis, "error": stage3.get("error", False)},
+            )
         answer_lengths.append(len(synthesis))
         previous_synthesis = synthesis
 
@@ -507,6 +556,14 @@ async def run_autocouncil(
                 f"Autocouncil converged at round {round_idx}: {convergence_reason}"
             )
             await _emit(progress_callback, "converged", {"round": round_idx, "reason": convergence_reason})
+            # Trace convergence
+            if trace_ctx is not None:
+                trace_convergence(
+                    trace_ctx,
+                    round_idx,
+                    converged=True,
+                    reason=convergence_reason,
+                )
             break
 
     if not converged:
